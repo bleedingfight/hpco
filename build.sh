@@ -17,6 +17,7 @@ project_name
 
 pushd ${build} >/dev/null
 cmake .. -DCMAKE_BUILD_TYPE=DEBUG
+find . -name ${executable} -exec rm -rf {} \;
 make -j$(nproc)
 make test
 ./${executable}

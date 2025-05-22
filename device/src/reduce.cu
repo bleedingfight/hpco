@@ -57,12 +57,13 @@ __global__ void reduce_max_kernel(T *d_out, const T *d_in, const int N) {
 template <typename T>
 __global__ void reduce_max_kernel_opt(T *d_out, const T *d_in, const int N) {
     auto block_data = d_in + blockDim.x * blockIdx.x;
-    auto tb = this_thread_block();
-    auto grid = this_grid();
+    auto tb = cooperative_groups::this_thread_block();
+    auto grid = cooperative_groups::this_grid();
     __shared__ T smem[1024];
 
     auto idx = tb.thread_rank() + grid.block_rank() * grid.num_blocks();
-    thread_block_tile<WARP_SIZE> tile32 = tiled_partition<WARP_SIZE>(tb);
+    cooperative_groups::thread_block_tile<WARP_SIZE> tile32 =
+        cooperative_groups::tiled_partition<WARP_SIZE>(tb);
     if (threadIdx.x + blockIdx.x * blockDim.x >= N)
         return;
 

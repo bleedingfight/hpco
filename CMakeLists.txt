@@ -14,21 +14,22 @@ if(CUDA_ENABLED)
   add_subdirectory(device)
 endif()
 
-# # 添加spdlog
-# FetchContent_Declare(
-#   spdlog
-#   GIT_REPOSITORY https://github.com/gabime/spdlog.git
-#   GIT_TAG v2.x)
-# add_compile_options(-fPIC)
-# FetchContent_MakeAvailable(spdlog)
+FetchContent_Declare(
+    nvbench
+    GIT_REPOSITORY https://github.com/NVIDIA/nvbench.git
+    GIT_TAG        main # 建议使用稳定版本标签，或者 GIT_BRANCH main
+    #GIT_SUBMODULES OFF # 如果nvbench有submodules但你不想下载，可以设为OFF
+)
 
-# # cache spdlog to share with different directory
-# set(SPDLOG_SOURCE_INCLUDE
-#     "${spdlog_SOURCE_DIR}/include"
-#     CACHE STRING "spdlog head directory ")
-# set(SPDLOG_LIBRARY_DIR
-#     "${spdlog_BINARY_DIR}"
-#     CACHE STRING "spdlog library directory ")
+# 获取nvbench并将其添加到构建中
+FetchContent_MakeAvailable(nvbench)
+
+# 检查nvbench是否被成功添加并提供了目标
+if (TARGET nvbench::nvbench)
+    message(STATUS "nvbench found and ready to use.")
+else()
+    message(FATAL_ERROR "nvbench target not found after FetchContent_MakeAvailable.")
+endif()
 
 option(BUILD_EIGEN "build with eigen" OFF)
 # 开启cutlass支持
@@ -60,6 +61,14 @@ if(BUILD_TESTS)
   enable_testing()
   add_subdirectory(tests)
 endif()
+
+option(BUILD_BENCHES "Build the tests" ON)
+if(BUILD_BENCHES)
+  message(STATUS "CUDA NVBench: ${BUILD_BENCHES}")
+  enable_testing()
+  add_subdirectory(benches)
+endif()
+
 if(CMAKE_BUILD_TYPE STREQUAL Debug)
     set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -g -G")
     message(STATUS "Debug CUDA NVCC FLAGS: ${CUDA_NVCC_FLAGS}")
@@ -80,4 +89,4 @@ message(STATUS "CUDA_ENABLED: ${CUDA_ENABLED}")
 include_directories(SYSTEM AFTER ${CMAKE_SOURCE_DIR}/host/include
                     ${CMAKE_SOURCE_DIR}/device/include ${EIGEN_INCLUDE_DIR})
 add_executable(${PROJECT_NAME} main.cc)
-target_link_libraries(${PROJECT_NAME} hostop deviceop)
+target_link_libraries(${PROJECT_NAME} PRIVATE hostop deviceop)

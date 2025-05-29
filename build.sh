@@ -16,7 +16,7 @@ build_type=$1
 project_name
 
 pushd ${build} >/dev/null
-cmake .. -DCMAKE_BUILD_TYPE=DEBUG
+cmake .. -DCMAKE_BUILD_TYPE=DEBUG -DCMAKE_POLICY_VERSION_MINIMUM=3.5
 find . -name ${executable} -exec rm -rf {} \;
 make -j$(nproc)
 make test

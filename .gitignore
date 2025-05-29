@@ -1,2 +1,8 @@
 
 build/*
+.python-version
+compile_commands.json
+*.ncu-rep
+reduce_sum_bench.cu
+report1*
+report1*

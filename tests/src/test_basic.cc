@@ -23,7 +23,7 @@ TEST(TestVecAdd, CUDADeviceSuits) {
     vector_add_with_cpu(h_dst, h_src1, h_src2, N);
     EXPECT_TRUE(std::equal(h_dst, h_dst + N, h_gpu));
     auto elaps = timer.elapsed_nanoseconds();
-    std::cout << "cost time:" << elaps << "(ns)\n";
+    // std::cout << "cost time:" << elaps << "(ns)\n";
     // for (int i = 0; i < 10; i++)
     //     std::cout << h_dst[i] << " ";
     delete[] h_src1;
@@ -70,7 +70,7 @@ TEST(TestNormalize, CUDADeviceSuits) {
     std::iota(h_in, h_in + N, 1.f);
 
     sci::stats::host::normalize(h_out, h_in, 6);
-    for (int i = 0; i < 6; i++) {
-        std::cout << "max cpu = " << h_out[i] << "\n";
-    }
+    // for (int i = 0; i < 6; i++) {
+    //     std::cout << "max cpu = " << h_out[i] << "\n";
+    // }
 }

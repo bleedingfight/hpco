@@ -33,7 +33,7 @@ endif()
 
 option(BUILD_EIGEN "build with eigen" OFF)
 # 开启cutlass支持
-option(USE_CUTLASS "USE cutlass" OFF)
+option(USE_CUTLASS "USE cutlass" ON)
 if(USE_CUTLASS)
   if(DEFINED ENV{CUTLASS_HOME})
     message(STATUS "Using CUTLASS_HOME environment variable: $ENV{CUTLASS_HOME}")

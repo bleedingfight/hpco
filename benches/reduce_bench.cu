@@ -26,7 +26,7 @@ static void reduce_max_benchmark(nvbench::state &state) {
                 thrust::raw_pointer_cast(d_in.data()), elements);
         });
 }
-NVBENCH_BENCH(reduce_sum_benchmark)
+NVBENCH_BENCH(reduce_max_benchmark)
     .add_int64_axis("BlockSize", {256, 512})
     .add_int64_power_of_two_axis("elements", nvbench::range(12, 20, 2));
 

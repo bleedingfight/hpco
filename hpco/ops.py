@@ -1,7 +1,7 @@
 import torch
 from torch import Tensor
 
-__all__ = ["mymuladd", "myadd_out"]
+__all__ = ["mymuladd", "myadd_out", "elu"]
 
 
 def mymuladd(a: Tensor, b: Tensor, c: float) -> Tensor:
@@ -46,7 +46,8 @@ def _setup_context(ctx, inputs, output):
 # the backward formula for the operator and a `setup_context` function
 # to save values to be used in the backward.
 torch.library.register_autograd(
-    "hpco::mymuladd", _backward, setup_context=_setup_context)
+    "hpco::mymuladd", _backward, setup_context=_setup_context
+)
 
 
 @torch.library.register_fake("hpco::mymul")
@@ -61,3 +62,16 @@ def _(a, b):
 def myadd_out(a: Tensor, b: Tensor, out: Tensor) -> None:
     """Writes a + b into out"""
     torch.ops.hpco.myadd_out.default(a, b, out)
+
+
+# @torch.library.register_fake("hpco::elu_cuda")
+# def _(a, b):
+#     torch._check(a.shape == b.shape)
+#     torch._check(a.dtype == torch.float)
+#     torch._check(b.dtype == torch.float)
+#     torch._check(a.device == b.device)
+#     return torch.empty_like(a)
+
+
+def elu(a: Tensor) -> None:
+    return torch.ops.hpco.elu_cuda(a)

@@ -12,6 +12,14 @@ def reference_muladd(a, b, c):
     return a * b + c
 
 
+class TestElu(TestCase):
+    def test_elu(self):
+        x = torch.tensor([-1, 0, 1, 2]).to(torch.float32)
+        y = F.elu(x)
+        breakpoint(x)
+        expected = torch.tensor([-0.6321, 0, 1, 2])
+
+
 class TestMyMulAdd(TestCase):
     def sample_inputs(self, device, *, requires_grad=False):
         def make_tensor(*size):
@@ -44,7 +52,9 @@ class TestMyMulAdd(TestCase):
     def _test_gradients(self, device):
         samples = self.sample_inputs(device, requires_grad=True)
         for args in samples:
-            diff_tensors = [a for a in args if isinstance(a, torch.Tensor) and a.requires_grad]
+            diff_tensors = [
+                a for a in args if isinstance(a, torch.Tensor) and a.requires_grad
+            ]
             out = hpco.ops.mymuladd(*args)
             grad_out = torch.randn_like(out)
             result = torch.autograd.grad(out, diff_tensors, grad_out)

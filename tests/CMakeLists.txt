@@ -1,6 +1,6 @@
 include_directories(${CMAKE_SOURCE_DIR}/device/include)
 include_directories(${CMAKE_SOURCE_DIR}/host/include)
-include_directories(${CMAKE_SOURCE_DIR}/tools/include)
+include_directories(${CMAKE_SOURCE_DIR}/tools/include ${CMAKE_SOURCE_DIR}/csrc/cuda/unary)
 
 file(GLOB TEST_SRCS "src/*.cc")
 enable_testing()
@@ -36,6 +36,7 @@ foreach(filename ${TEST_SRCS})
     gtest_main
     deviceop
     hostop
+    ops
   )
   add_test(${TARGET_NAME} ${TEST_NAME})
   add_test(NAME ${TEST_NAME} COMMAND ${TEST_NAME})

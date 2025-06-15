@@ -70,7 +70,7 @@ TEST(TestNormalize, CUDADeviceSuits) {
     std::iota(h_in, h_in + N, 1.f);
 
     sci::stats::host::normalize(h_out, h_in, 6);
-    // for (int i = 0; i < 6; i++) {
-    //     std::cout << "max cpu = " << h_out[i] << "\n";
-    // }
+    for (int i = 0; i < 6; i++) {
+        std::cout << "max cpu = " << h_out[i] << "\n";
+    }
 }

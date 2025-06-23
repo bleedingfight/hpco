@@ -1,5 +1,0 @@
-file(GLOB SRCS src/*.cu)
-include_directories(SYSTEM ${CUTLASS_ROOT_DIR}/include include)
-message(STATUS "cutlass include dir: ${CUTLASS_ROOT_DIR}/include")
-add_library(deviceop SHARED ${SRCS})
-set_target_properties(deviceop PROPERTIES CUDA_SEPARABLE_COMPILATION ON)

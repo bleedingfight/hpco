@@ -1,4 +1,5 @@
-#include "unary_ops.h"
+#include "unary_ops_cpu.h"
+namespace hpco::unary_ops::cpu {
 template <typename T>
 void elu_cpu(T *h_out, T *h_in, const int N, float alpha) {
     std::transform(h_in, h_in + N, h_out, [&alpha](T x) {
@@ -8,3 +9,4 @@ void elu_cpu(T *h_out, T *h_in, const int N, float alpha) {
     });
 }
 template void elu_cpu<float>(float *, float *, const int, float);
+}; // namespace hpco::unary_ops::cpu

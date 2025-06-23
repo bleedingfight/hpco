@@ -1,4 +1,4 @@
-#include "reduce_kernel.cuh"
+#include "csrc/cuda/reduce/reduce_kernel.cuh"
 #include <nvbench/nvbench.cuh>
 #include <thrust/device_vector.h>
 

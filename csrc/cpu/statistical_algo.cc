@@ -1,7 +1,7 @@
 #include "statistical_algo.h"
 #include <algorithm>
 #include <numeric>
-namespace sci::stats::host {
+namespace hpco::stats::cpu {
 // template <typename T> T vars1D_with_cpu(T *h_in, const unsigned int N) {
 //     T mean = std::accumulate(h_in, h_in + N, T()) / N;
 //     std::transform(h_in, h_in + N, h_in, [](int x) { return std::pow(x, 2);
@@ -32,4 +32,4 @@ template <typename T> void normalize(T *h_out, T *h_in, const int N) {
     });
 }
 template void normalize(float *, float *, const int);
-} // namespace sci::stats::host
+} // namespace hpco::stats::cpu

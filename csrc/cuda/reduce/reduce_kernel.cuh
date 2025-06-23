@@ -1,7 +1,6 @@
-#include "common.h"
+#include "csrc/cuda/common.h"
 #include <algorithm>
 #include <cooperative_groups/reduce.h>
-#include <cstdio>
 #include <cuda_runtime.h>
 #define WARP_SIZE 32
 template <typename T>

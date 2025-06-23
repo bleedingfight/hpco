@@ -2,7 +2,6 @@ cmake_minimum_required(VERSION 3.18)
 project(hpc LANGUAGES CXX CUDA)
 include(FetchContent)
 
-add_subdirectory(host)
 include_directories(${CMAKE_SOURCE_DIR})
 set(CMAKE_CUDA_ARCHITECTURES 86)
 find_package(OpenMP REQUIRED)
@@ -11,25 +10,11 @@ set(CMAKE_CXX_STANDARD 17)
 option(CUDA_ENABLED "CUDA_ENABLED" ON)
 if(CUDA_ENABLED)
   enable_language(CUDA)
-  add_subdirectory(device)
+  add_subdirectory(csrc)
 endif()
 
-FetchContent_Declare(
-    nvbench
-    GIT_REPOSITORY https://github.com/NVIDIA/nvbench.git
-    GIT_TAG        main # 建议使用稳定版本标签，或者 GIT_BRANCH main
-    #GIT_SUBMODULES OFF # 如果nvbench有submodules但你不想下载，可以设为OFF
-)
-
-# 获取nvbench并将其添加到构建中
-FetchContent_MakeAvailable(nvbench)
-
-# 检查nvbench是否被成功添加并提供了目标
-if (TARGET nvbench::nvbench)
-    message(STATUS "nvbench found and ready to use.")
-else()
-    message(FATAL_ERROR "nvbench target not found after FetchContent_MakeAvailable.")
-endif()
+include(cmake/CPM.cmake)
+CPMAddPackage("gh:NVIDIA/nvbench#main")
 
 option(BUILD_EIGEN "build with eigen" OFF)
 # 开启cutlass支持
@@ -75,7 +60,7 @@ if(CMAKE_BUILD_TYPE STREQUAL Debug)
 endif()
 # 根据选项选择是否包含device的库
 if(CUDA_ENABLED)
-    set(link_libs "deviceop hostop")
+    set(link_libs "ops hostop")
 else()
     set(link_libs "hostop")
 endif()
@@ -85,10 +70,10 @@ endif()
 #     add_compile_options(-fopenmp)
 #     target_link_libraries(hostop PUBLIC OpenMP::OpenMP_CXX)
 # endif()
-add_subdirectory(csrc)
-set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 message(STATUS "CUDA_ENABLED: ${CUDA_ENABLED}")
 include_directories(SYSTEM AFTER ${CMAKE_SOURCE_DIR}/host/include
                     ${CMAKE_SOURCE_DIR}/device/include ${EIGEN_INCLUDE_DIR})
 add_executable(${PROJECT_NAME} main.cc)
-target_link_libraries(${PROJECT_NAME} PRIVATE hostop deviceop ops)
+target_link_libraries(${PROJECT_NAME} PRIVATE hostop ops)

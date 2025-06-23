@@ -34,7 +34,6 @@ foreach(filename ${TEST_SRCS})
     ${TARGET_NAME}
     benchmark::benchmark 
     gtest_main
-    deviceop
     hostop
     ops
   )

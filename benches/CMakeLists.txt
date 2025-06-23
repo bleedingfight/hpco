@@ -11,13 +11,13 @@ foreach(BENCH_FILE ${BENCHMARK_CU_FILES})
     # 链接 nvbench 库
     target_link_libraries(${EXECUTABLE_NAME}
         PRIVATE
-            nvbench::nvbench deviceop cudart
+            nvbench::nvbench ops cudart
     )
 
     # 确保基准测试可执行文件能够找到 device_kernels 的头文件
     target_include_directories(${EXECUTABLE_NAME}
         PRIVATE
-            $<TARGET_PROPERTY:deviceop,INTERFACE_INCLUDE_DIRECTORIES>
+            $<TARGET_PROPERTY:ops,INTERFACE_INCLUDE_DIRECTORIES>
     )
 
     # ------------------------------------------------------------------

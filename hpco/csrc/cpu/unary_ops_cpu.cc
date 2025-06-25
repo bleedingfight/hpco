@@ -8,5 +8,12 @@ void elu_cpu(T *h_out, T *h_in, const int N, float alpha) {
                            (static_cast<T>(std::exp(x)) - static_cast<T>(1.f));
     });
 }
+
+template <typename T> void silu_cpu(T *h_out, T *h_in, const int N) {
+    std::transform(h_in, h_in + N, h_out,
+                   [](T x) { return x / (1 + std::exp(-x)); });
+}
+
 template void elu_cpu<float>(float *, float *, const int, float);
+template void silu_cpu<float>(float *, float *, const int);
 }; // namespace hpco::unary_ops::cpu

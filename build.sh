@@ -19,6 +19,7 @@ pushd ${build} >/dev/null
 # export CUTLASS_ROOT_DIR=${workspace}/cutlass
 cmake .. -DCMAKE_BUILD_TYPE=DEBUG -DCMAKE_POLICY_VERSION_MINIMUM=3.5 
 find . -name ${executable} -exec rm -rf {} \;
+make clean
 make -j$(nproc)
 make test
 #./${executable}

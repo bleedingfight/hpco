@@ -10,7 +10,7 @@ set(CMAKE_CXX_STANDARD 17)
 option(CUDA_ENABLED "CUDA_ENABLED" ON)
 if(CUDA_ENABLED)
   enable_language(CUDA)
-  add_subdirectory(csrc)
+  add_subdirectory(hpco)
 endif()
 
 include(cmake/CPM.cmake)

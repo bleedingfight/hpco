@@ -36,6 +36,7 @@
 #define BINARY_OP_REGISTER_TYPE(op_name, T)                                    \
     template void op_name##_with_cuda(T *h_dst, T *h_src1, T *h_src2,          \
                                       const int);
+
 namespace cuda {
 // template <typename T>
 // void vector_add_with_cuda(T *h_out, T *h_in1, T *h_in2, const int N);

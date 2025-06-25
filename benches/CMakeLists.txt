@@ -1,5 +1,5 @@
 file(GLOB BENCHMARK_CU_FILES "*.cu")
-include_directories(${CMAKE_SOURCE_DIR}/device/include)
+include_directories(${CMAKE_SOURCE_DIR}/device/include ${CMAKE_SOURCE_DIR}/hpco)
 foreach(BENCH_FILE ${BENCHMARK_CU_FILES})
     get_filename_component(BENCH_NAME "${BENCH_FILE}" NAME_WE)
 

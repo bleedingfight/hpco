@@ -1,4 +1,4 @@
-#include "csrc/cuda/common.h"
+#include "hpco/csrc/cuda/common.h"
 #include <algorithm>
 #include <cooperative_groups/reduce.h>
 #include <cuda_runtime.h>

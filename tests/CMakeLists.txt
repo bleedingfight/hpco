@@ -1,6 +1,6 @@
 include_directories(${CMAKE_SOURCE_DIR}/device/include)
 include_directories(${CMAKE_SOURCE_DIR}/host/include)
-include_directories(${CMAKE_SOURCE_DIR}/tools/include ${CMAKE_SOURCE_DIR}/csrc/cuda/unary)
+include_directories(${CMAKE_SOURCE_DIR}/tools/include ${CMAKE_SOURCE_DIR}/hpco)
 
 file(GLOB TEST_SRCS "src/*.cc")
 enable_testing()

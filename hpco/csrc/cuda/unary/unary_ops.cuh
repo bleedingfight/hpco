@@ -1,6 +1,7 @@
 
 #pragma once
 #include <cooperative_groups.h>
+#include <cuda_fp16.h>
 #include <cuda_runtime.h>
 #define ALPHA 1.f
 #define UNARY_OP_REGISTER_TYPE(op_name, T)                                     \
@@ -25,10 +26,18 @@
     UNARY_OP_REGISTER_TYPE(op_name, dtype)
 
 namespace hpco::unary_ops::cuda {
-
-__device__ __forceinline__ float elu(float x) {
+template <typename T,
+          typename std::enable_if_t<std::is_same<T, float>::value> * = nullptr>
+__device__ __forceinline__ T elu(T x) {
     return x > 0 ? x : ALPHA * (__expf(x) - 1);
 }
+
+template <typename T,
+          typename std::enable_if_t<std::is_same<T, half>::value> * = nullptr>
+__device__ __forceinline__ T elu(T x) {
+    return x > 0 ? x : ALPHA * (hexp(x) - 1);
+}
+
 __device__ __forceinline__ float silu(float x) { return x / (1 + __expf(-x)); }
 __global__ void elu_kernel(float *__restrict__ d_out,
                            const float *__restrict__ d_in, const int N) {

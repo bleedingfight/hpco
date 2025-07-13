@@ -1,12 +1,12 @@
-#include "csrc/cpu/embedding_cpu.h"
 #include "csrc/cuda/common.h"
 #include "csrc/cuda/ops.h"
+#include "hpco/csrc/op_kernels.h"
 #include "tests/include/common.h"
 #include "timer.h"
 #include "utils.h"
-#include <algorithm>
 #include <gtest/gtest.h>
-using namespace hpco::embedding;
+using namespace hpco::cpu;
+using namespace hpco::cuda;
 TEST(TestEmbedding, CUDAUnaryOperator) {
     const int rows = 1 << 10;
     const int embedding_size = 768;
@@ -18,15 +18,14 @@ TEST(TestEmbedding, CUDAUnaryOperator) {
 
     float *h_weight = new float[N];
     float *h_out = new float[out_size];
+    float *gpu_out = new float[out_size];
     generateRandom(h_weight, N, -100, 100);
 
-    // float *gpu_out = new float[N];
-
-    cpu::embedding_cpu(h_out, h_weight, h_index, index_size, embedding_size);
-    // cpu::embedding_cpu(h_out, h_weight, n, embeding_size);
-    // cuda::elu_fp32_cuda(h_out, h_in, N);
-    // EXPECT_TRUE(same_array(h_out, gpu_out, N, 1e-6));
+    embedding_cpu(h_out, h_weight, h_index, index_size, rows, embedding_size);
+    embedding(gpu_out, h_weight, h_index, index_size, rows, embedding_size);
+    EXPECT_TRUE(same_array(h_out, gpu_out, N, 1e-6));
     delete[] h_weight;
     delete[] h_out;
+    delete[] gpu_out;
     delete[] h_index;
 }

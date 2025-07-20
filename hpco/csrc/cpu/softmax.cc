@@ -58,11 +58,10 @@ void onlinesoftmax_tile(T *h_out, const T *h_in, const size_t rows,
                            h_out + r * cols + c,
                            [&](T x) { return std::exp(x - m_next); });
 
-            T temp =
-                std::reduce(h_out + r * cols + c,
-                            h_out + r * cols + std::min(c + tile_size, cols),
-                            T(0), [&](T x, T y) { return x + y; });
-            den = std::exp(m_prev - m_next) * den + temp;
+            den = std::exp(m_prev - m_next) * den +
+                  std::reduce(h_out + r * cols + c,
+                              h_out + r * cols + std::min(c + tile_size, cols),
+                              T(0), [&](T x, T y) { return x + y; });
             m_prev = m_next;
         }
         std::transform(h_in + r * cols, h_in + r * cols + cols,

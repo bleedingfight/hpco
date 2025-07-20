@@ -1,9 +1,9 @@
-cmake_minimum_required(VERSION 3.18)
-project(hpc LANGUAGES CXX CUDA)
+cmake_minimum_required(VERSION 3.20)
+project(hpco LANGUAGES CXX CUDA)
 include(FetchContent)
 
 include_directories(${CMAKE_SOURCE_DIR})
-set(CMAKE_CUDA_ARCHITECTURES 86)
+set(CMAKE_CUDA_ARCHITECTURES native)
 find_package(OpenMP REQUIRED)
 
 set(CMAKE_CXX_STANDARD 17)
@@ -16,7 +16,6 @@ endif()
 include(cmake/CPM.cmake)
 CPMAddPackage("gh:NVIDIA/nvbench#main")
 
-option(BUILD_EIGEN "build with eigen" OFF)
 # 开启cutlass支持
 option(USE_CUTLASS "USE cutlass" ON)
 if(USE_CUTLASS)
@@ -27,7 +26,6 @@ if(USE_CUTLASS)
     # Define a default path if CUTLASS_HOME is not set
     set(DEFAULT_CUTLASS_PATH "/usr/local/cutlass/") # Change this to your desired default path
     message(STATUS "CUTLASS_HOME not set, using default path: ${DEFAULT_CUTLASS_PATH}")
-    # set(CUTLASS_ROOT_DIR ${DEFAULT_CUTLASS_PATH})
     set(CUTLASS_ROOT_DIR ${DEFAULT_CUTLASS_PATH} CACHE STRING "设置全局CUTLASS")
   endif()
   include_directories(${CUTLASS_ROOT_DIR}/include)
@@ -47,11 +45,11 @@ if(BUILD_TESTS)
   add_subdirectory(tests)
 endif()
 
-option(BUILD_BENCHES "Build the tests" ON)
+option(BUILD_BENCHES "Build the benchmarks" ON)
 if(BUILD_BENCHES)
   message(STATUS "CUDA NVBench: ${BUILD_BENCHES}")
   enable_testing()
-  add_subdirectory(benches)
+  add_subdirectory(benchmarks)
 endif()
 
 if(CMAKE_BUILD_TYPE STREQUAL Debug)
@@ -60,7 +58,7 @@ if(CMAKE_BUILD_TYPE STREQUAL Debug)
 endif()
 # 根据选项选择是否包含device的库
 if(CUDA_ENABLED)
-    set(link_libs "ops hostop")
+    set(link_libs "hpco_cuda hostop")
 else()
     set(link_libs "hostop")
 endif()
@@ -76,4 +74,4 @@ message(STATUS "CUDA_ENABLED: ${CUDA_ENABLED}")
 include_directories(SYSTEM AFTER ${CMAKE_SOURCE_DIR}/host/include
                     ${CMAKE_SOURCE_DIR}/device/include ${EIGEN_INCLUDE_DIR})
 add_executable(${PROJECT_NAME} main.cc)
-target_link_libraries(${PROJECT_NAME} PRIVATE hostop ops)
+target_link_libraries(${PROJECT_NAME} PRIVATE hostop hpco_cuda)

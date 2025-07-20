@@ -4,8 +4,6 @@
 #include "timer.h"
 #include "utils.h"
 #include <gtest/gtest.h>
-#include <numeric>
-#include <utility>
 using namespace hpco::reduce_ops::cpu;
 TEST(TestReduceMax, CUDADeviceSuits) {
     for (int i = 10; i < 18; i++) {

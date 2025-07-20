@@ -4,8 +4,6 @@
 #include "timer.h"
 #include "utils.h"
 #include <gtest/gtest.h>
-#include <numeric>
-#include <utility>
 TEST(TestMatmul, CUDADeviceSuits) {
     int M = 512;
     int N = 512;

@@ -3,8 +3,6 @@
 #include "timer.h"
 #include "utils.h"
 #include <gtest/gtest.h>
-#include <numeric>
-#include <utility>
 using namespace hpco::binary_ops::cpu;
 // using namespace hpco::binary_ops::cuda;
 TEST(TestVecAdd, CUDADeviceSuits) {

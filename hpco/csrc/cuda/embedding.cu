@@ -2,6 +2,7 @@
 #include "hpco/csrc/op_kernels.h"
 #include <cooperative_groups.h>
 #include <cuda_runtime.h>
+#include <float.h>
 namespace hpco::cuda {
 template <typename T>
 __global__ void embedding_kernel(T *d_out, const T *d_weight, const int *index,

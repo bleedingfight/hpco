@@ -35,7 +35,7 @@ foreach(filename ${TEST_SRCS})
     benchmark::benchmark 
     gtest_main
     hostop
-    ops
+    hpco_cuda
   )
   add_test(${TARGET_NAME} ${TEST_NAME})
   add_test(NAME ${TEST_NAME} COMMAND ${TEST_NAME})

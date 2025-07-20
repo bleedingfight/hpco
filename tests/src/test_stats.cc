@@ -4,7 +4,6 @@
 #include "utils.h"
 #include <gtest/gtest.h>
 #include <numeric>
-#include <utility>
 TEST(TestNormalize, CUDADeviceSuits) {
     // float x = {1, 2, 3, 4, 5, 6};
     int const N = 10;

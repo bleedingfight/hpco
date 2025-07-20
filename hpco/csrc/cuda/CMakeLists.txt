@@ -1,4 +1,5 @@
 file(GLOB_RECURSE SRCS *.cu)
-add_library(ops SHARED ${SRCS})
-include_directories(SYSTEM ${CUTLASS_ROOT_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR})
-set_target_properties(ops PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
+add_library(hpco_cuda SHARED ${SRCS})
+set(CMAKE_CUDA_ARCHITECTURES native)
+include_directories(SYSTEM ${CUTLASS_ROOT_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/tools/include)
+set_target_properties(hpco_cuda PROPERTIES CUDA_SEPARABLE_COMPILATION ON)

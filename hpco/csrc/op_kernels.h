@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <functional>
 
 #include <limits>
@@ -20,6 +21,9 @@ template <typename T, int tile_size>
 void onlinesoftmax_tile(T *h_out, const T *h_in, const size_t rows,
                         const size_t cols);
 
+template <typename T>
+void rms_norm(T *out, const T *input, const T *weight, size_t batch_size,
+              size_t d, float eps = 1e-5);
 template <typename T>
 void self_attention_cpu(T *h_o, const T *h_q /*M,K*/, const T *h_k /*N,K*/,
                         const T *h_v /*M,W*/, const int M, const int N,

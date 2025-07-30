@@ -1,4 +1,4 @@
-#include "unary_ops_cpu.h"
+#include "hpco/csrc/op_kernels.h"
 namespace hpco::unary_ops::cpu {
 template <typename T>
 void elu_cpu(T *h_out, T *h_in, const int N, float alpha) {

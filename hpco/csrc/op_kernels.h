@@ -8,6 +8,27 @@
 #include <limits>
 #include <numeric>
 namespace hpco {
+
+namespace stats::cpu {
+template <typename T> void normalize(T *h_out, T *h_in, const int N);
+}
+namespace unary_ops::cpu {
+template <typename T>
+void elu_cpu(T *h_out, T *h_in, const int N, float alpha = 1.f);
+template <typename T> void silu_cpu(T *h_out, T *h_in, const int N);
+} // namespace unary_ops::cpu
+namespace reduce_ops::cpu {
+template <typename T> T reduce_max_with_cpu(const T *h_in, const int N);
+}
+namespace binary_ops::cpu {
+template <typename T>
+void vector_add_with_cpu(T *h_dst, T *h_src1, T *h_src2, const int N);
+}
+namespace gemm::cpu {
+template <typename T>
+void matmul_with_cpu(T *h_c, const T *h_a, const T *h_b, const int M,
+                     const int N, const int K, const int tile);
+}
 namespace cpu {
 template <typename T>
 void embedding_cpu(T *h_out, const T *h_weight, const int *index, const int n,

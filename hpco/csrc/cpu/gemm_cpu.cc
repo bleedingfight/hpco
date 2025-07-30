@@ -1,4 +1,4 @@
-#include "gemm_cpu.h"
+#include "hpco/csrc/op_kernels.h"
 namespace hpco::gemm::cpu {
 template <typename T>
 void matmul_with_cpu(T *h_c, const T *h_a, const T *h_b, const int M,

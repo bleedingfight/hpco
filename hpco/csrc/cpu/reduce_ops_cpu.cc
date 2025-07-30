@@ -1,4 +1,4 @@
-#include "reduce_ops_cpu.h"
+#include "hpco/csrc/op_kernels.h"
 namespace hpco::reduce_ops::cpu {
 template <typename T> T reduce_max_with_cpu(const T *h_in, const int N) {
     return std::reduce(h_in, h_in + N, T(0),

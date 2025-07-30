@@ -87,10 +87,11 @@ __global__ void reduce_max_kernel_opt(T *d_out, const T *d_in, const int N) {
 }
 
 namespace cuda {
-template <typename T> T reduce_max_with_cuda(T *h_in, const int N) {
+template <typename T, size_t block_size>
+T reduce_max_with_cuda(T *h_in, const int N) {
     auto nbytes = N * sizeof(T);
     T *d_out, *d_in;
-    const size_t block_dim = 1024;
+    const size_t block_dim = block_size;
     const int grids = (N + block_dim - 1) / block_dim;
     T *h_out = new T[grids];
     CUDA_CHECK(cudaMalloc(reinterpret_cast<void **>(&d_in), nbytes));
@@ -107,6 +108,6 @@ template <typename T> T reduce_max_with_cuda(T *h_in, const int N) {
     return res;
 }
 
-template int reduce_max_with_cuda(int *h_in, const int N);
-template float reduce_max_with_cuda(float *h_in, const int N);
+template int reduce_max_with_cuda<int, 512>(int *h_in, const int N);
+template float reduce_max_with_cuda<float, 512>(float *h_in, const int N);
 }; // namespace cuda

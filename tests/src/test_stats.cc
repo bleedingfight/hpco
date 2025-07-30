@@ -1,5 +1,5 @@
-#include "csrc/cpu/statistical_algo.h"
 #include "csrc/cuda/common.h"
+#include "hpco/csrc/op_kernels.h"
 #include "timer.h"
 #include "utils.h"
 #include <gtest/gtest.h>

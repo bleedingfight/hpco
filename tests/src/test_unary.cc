@@ -1,9 +1,7 @@
-
-#include "csrc/cpu/unary_ops_cpu.h"
 #include "csrc/cuda/common.h"
 #include "csrc/cuda/ops.h"
+#include "hpco/csrc/op_kernels.h"
 #include "tests/include/common.h"
-#include "timer.h"
 #include "utils.h"
 #include <gtest/gtest.h>
 TEST(TestElu, CUDAUnaryOperator) {

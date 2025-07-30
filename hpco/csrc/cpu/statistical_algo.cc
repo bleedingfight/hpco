@@ -1,6 +1,4 @@
-#include "statistical_algo.h"
-#include <algorithm>
-#include <numeric>
+#include "hpco/csrc/op_kernels.h"
 namespace hpco::stats::cpu {
 // template <typename T> T vars1D_with_cpu(T *h_in, const unsigned int N) {
 //     T mean = std::accumulate(h_in, h_in + N, T()) / N;

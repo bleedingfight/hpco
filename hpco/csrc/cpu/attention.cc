@@ -57,7 +57,7 @@ void flashattention_cpu(T *h_o, const T *h_q /*M,K*/, const T *h_k /*N,K*/,
         T m_prev = std::numeric_limits<T>::min();
         T den = 0;
         for (int i = 0; i < N; i++) {
-            T t = std::transform_reduce(q_row, q_row + K, h_k, h_k + K, T(0),
+            T t = std::transform_reduce(q_row, q_row + K, h_k, h_k + K, T(-1),
                                         std::plus<T>(), std::multiplies<T>());
             T m_i = std::max(t, m_prev);
             den = den * std::exp(m_prev - m_i) + std::exp(t);
@@ -72,6 +72,42 @@ void flashattention_cpu(T *h_o, const T *h_q /*M,K*/, const T *h_k /*N,K*/,
             h_o[m * N + i] = o_val;
         }
     }
+}
+
+// Q:[M,K]
+// K:[N,K] -> K^T:[KxN]
+// V:[N,L]
+template <typename T>
+void flashattention(T *out_ptr, T *q_ptr, T *k_ptr, T *v_ptr, const int M,
+                    const int N, const int K, const int L) {
+    T *qk_row = new T[N];
+    for (int m = 0; m < M; m++) {
+        T *q_row = q_ptr + m * K;
+        T d = T();
+        T g_m = std::numeric_limits<T>::min();
+        for (int n = 0; n < N; n++) {
+            T *k_row = k_ptr + n * K;
+            T acc =
+                std::inner_product(q_row, q_row + K, k_row, T()) / std::sqrt(K);
+            d = d * std::exp(g_m - std::max(acc, g_m)) +
+                std::exp(acc - std::max(g_m, acc));
+            g_m = std::max(g_m, acc);
+            // 将QK^T的结果写入缓存
+            qk_row[n] = acc;
+        }
+        std::transform(qk_row, qk_row + N, qk_row,
+                       [&](T v) { return std::exp(v - g_m) / d; });
+        // 计算QK^T的第i行和v矩阵的第l列
+        for (int l = 0; l < L; l++) {
+
+            T acc = T();
+            for (int n = 0; n < N; n++) {
+                acc += qk_row[n] * v_ptr[n * L + l];
+            }
+            out_ptr[m * L + l] = acc;
+        }
+    }
+    delete[] qk_row;
 }
 
 } // namespace hpco::cpu

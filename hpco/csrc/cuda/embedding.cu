@@ -11,10 +11,8 @@ __global__ void embedding_kernel(T *d_out, const T *d_weight, const int *index,
     auto idx = index[blockIdx.x];
     if (tb.thread_rank() < embedding_size) {
         // Each thread copies one element of the embedding vector
-        for (int i = 0; i < n; i++) {
-            d_out[index[i] * embedding_size + tb.thread_rank()] =
-                d_weight[index[i] * embedding_size + tb.thread_rank()];
-        }
+        d_out[blockIdx.x * embedding_size + tb.thread_rank()] =
+            d_weight[idx * embedding_size + tb.thread_rank()];
     }
 }
 
@@ -33,6 +31,8 @@ void embedding(T *h_out, const T *h_weight, const int *index, const int n,
     dim3 block = embedding_size;
     dim3 grid = n;
     CUDA_CHECK(cudaMemcpy(d_weight, h_weight, nbytes, cudaMemcpyHostToDevice));
+    CUDA_CHECK(
+        cudaMemcpy(d_index, index, n * sizeof(T), cudaMemcpyHostToDevice));
     embedding_kernel<<<grid, block>>>(d_out, d_weight, d_index, n, rows,
                                       embedding_size);
     CUDA_CHECK(cudaMemcpy(h_out, d_out, out_size, cudaMemcpyDeviceToHost));

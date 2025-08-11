@@ -66,7 +66,7 @@ fn flashattention(
                 .step_by(L)
                 .take(N)
                 .map(|i| (x - g_m) / d * V_in[i])
-                .fold(0.0f32, |acc, v| acc + v);
+                .fold(0.0f32, |acc, x| acc + x * v);
 
             // let v_col = &V_in[]
             let acc = q_row

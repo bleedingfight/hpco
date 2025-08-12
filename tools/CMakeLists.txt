@@ -1,0 +1,7 @@
+file(GLOB TOOLS_SRCS "*.cc")
+find_package(CUDAToolkit)
+foreach(filename ${TOOLS_SRCS})
+  get_filename_component(TOOL_NAME ${filename} NAME_WE)
+  add_executable(${TOOL_NAME} ${filename})
+  target_link_libraries(${TOOL_NAME} PRIVATE CUDA::cudart)
+endforeach()

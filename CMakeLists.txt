@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.18)
+cmake_minimum_required(VERSION 3.20)
 project(hpc LANGUAGES CXX CUDA)
 include(FetchContent)
 
@@ -34,7 +34,7 @@ if(USE_CUTLASS)
 endif()
 
 # 是否编译工具
-option(BUILD_TOOLS "Build the Tools" OFF)
+option(BUILD_TOOLS "Build the Tools" ON)
 if(BUILD_TOOLS)
   add_subdirectory(tools)
 endif()
@@ -65,11 +65,6 @@ else()
     set(link_libs "hostop")
 endif()
 
-# if(OpenMP_CXX_FOUND)
-#     message(STATUS "OpenMP enabled: ${OpenMP_CXX_FOUND}")
-#     add_compile_options(-fopenmp)
-#     target_link_libraries(hostop PUBLIC OpenMP::OpenMP_CXX)
-# endif()
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 message(STATUS "CUDA_ENABLED: ${CUDA_ENABLED}")

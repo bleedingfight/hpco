@@ -54,6 +54,36 @@ reduce_max_and_exp_sum(const cooperative_groups::thread_block_tile<32> &tile,
     // printf("max_val = %f exp_sum = %f\n", max_val, exp_sum);
     return make_float2(max_val, exp_sum);
 }
+// template <typename T>
+// __global__ void softmax_kernel(T *out, const T *d_in,
+//                                const int stride1 /*cols*/, const int stride2)
+//                                {
+//     auto tb = cooperative_groups::this_thread_block();
+//     auto grid = cooperative_groups::this_grid();
+//     auto tile = cooperative_groups::thread_block_tile<32>(tb);
+//     T thead_value = -FLT_MAX;
+//     // 缓存tile的计算结果
+//     extern __shared__ T shared_data[];
+//     for (auto idx = tile.thread_rank(); idx < stride1; idx += tile.size()) {
+//         thead_value = d_in[grid.thread_index().x * stride1 + idx];
+//         T max_value = cooperative_groups::reduce(
+//             tile, thead_value, cooperative_groups::greater<T>());
+//         max_value = fmax(max_value, thead_value);
+
+//         // max_value = tile.shfl(max_value, 0); // 广播
+//         T exp_sum = T();
+//         for (auto i = tile.thread_rank(); i < stride2; i += tile.size()) {
+//             exp_sum += expf(d_in[idx * stride2 + i] - max_value);
+//         }
+//         exp_sum = cooperative_groups::reduce(tile, exp_sum,
+//                                              cooperative_groups::plus<T>());
+//         shared_data[tile.meta_group_index()] = make_float2(max_value,
+//         exp_sum);
+//     }
+
+//     // out[idx * stride2 + grid.thread_index().y] =
+//     //     expf(thead_value - max_value) / exp_sum;
+// }
 
 __device__ float2 tile_max_and_exp_sum(
     const cooperative_groups::thread_block_tile<32> &tile,
@@ -87,14 +117,7 @@ __device__ float2 tile_max_and_exp_sum(
     // 返回 tile 局部结果
     return make_float2(tile_max, tile_sum);
 }
-// __device__ float2 reduce_max_and_exp_sum_tile(
-//     const cooperative_groups::thread_block_tile<32> &tile,
-//     const float *d_in_block, size_t N) {
-//     float tile_max = -FLT_MAX;
-//     float tile_max = tile_max =
-//         cooperative_groups::reduce(tile, d_in_block[tile.thread_rank()],
-//                                    cooperative_groups::greater<float>());
-// }
+
 // 只能受限于最大blockDim.x列
 __global__ void safe_softmax(float *d_out, const float *d_in, const size_t rows,
                              const size_t cols) {
@@ -138,8 +161,84 @@ void safesoftmax(T *h_out, const T *h_in, const size_t rows,
                        h_out + r * cols, [&](T x) { return x / den; });
     }
 }
+struct __align__(8) MD {
+    float m; // max
+    float d; // sum of exp
+};
+template <const int kWarpSize = 32>
+__device__ __forceinline__ MD warp_reduce_md_op(MD value) {
+    unsigned int mask = 0xffffffff;
+#pragma unroll
+    for (int stride = kWarpSize >> 1; stride >= 1; stride >>= 1) {
+        MD other;
+        other.m = __shfl_xor_sync(mask, value.m, stride);
+        other.d = __shfl_xor_sync(mask, value.d, stride);
+
+        bool value_bigger = (value.m > other.m);
+        MD bigger_m = value_bigger ? value : other;
+        MD smaller_m = value_bigger ? other : value;
+
+        value.d = bigger_m.d + smaller_m.d * __expf(smaller_m.m - bigger_m.m);
+        value.m = bigger_m.m;
+    }
+    return value;
+}
+
+template <const int NUM_THREADS = 256, int WARP_SIZE = 32>
+__global__ void online_safe_softmax_f32_per_token_kernel(const float *x,
+                                                         float *y, int N) {
+    // reference: https://arxiv.org/pdf/1805.02867 (Online normalizer
+    // calculation for softmax)
+    int local_tid = threadIdx.x;
+    int global_tid = blockIdx.x * NUM_THREADS + threadIdx.x;
+    const int WARP_NUM = NUM_THREADS / WARP_SIZE;
+    int warp_id = local_tid / WARP_SIZE;
+    int lane_id = local_tid % WARP_SIZE;
+    MD val;
+    val.m = global_tid < N ? x[global_tid] : -FLT_MAX;
+    val.d = global_tid < N ? 1.0f : 0.0f;
+
+    __shared__ MD shared[WARP_NUM];
+    MD res = warp_reduce_md_op<WARP_SIZE>(val);
+
+    if (lane_id == 0)
+        shared[warp_id] = res;
+    __syncthreads();
+
+    if (local_tid < WARP_SIZE) {
+        MD block_res = shared[local_tid];
+        block_res = warp_reduce_md_op<WARP_NUM>(block_res);
+        if (local_tid == 0) {
+            shared[0] = block_res;
+        }
+    }
+    __syncthreads();
+
+    MD final_res = shared[0];
+    float d_total_inverse = __fdividef(1.0f, final_res.d);
+    if (global_tid < N) {
+        y[global_tid] = __expf(x[global_tid] - final_res.m) * d_total_inverse;
+    }
+}
+template <int BLOCK_SIZE = 256>
+void online_softmax_interface(float *h_out, const float *h_in, const int rows,
+                              const int cols) {
+    float *d_in, *d_out;
+    const size_t nbytes = rows * cols * sizeof(float);
+    cudaMalloc(reinterpret_cast<void **>(&d_in), nbytes);
+    cudaMalloc(reinterpret_cast<void **>(&d_out), nbytes);
+    cudaMemcpy(d_in, h_in, nbytes, cudaMemcpyHostToDevice);
+    dim3 block(BLOCK_SIZE);
+    dim3 grid((rows * cols + block.x - 1) / block.x);
+    online_safe_softmax_f32_per_token_kernel<<<grid, block>>>(d_in, d_out,
+                                                              rows * cols);
+    cudaMemcpy(h_out, d_out, nbytes, cudaMemcpyDeviceToHost);
+    cudaFree(d_in);
+    cudaFree(d_out);
+}
+
 int main() {
-    const int rows = 5;
+    const int rows = 1;
     const int cols = 512;
     const int N = rows * cols;
     float *h_data = new float[N];
@@ -147,7 +246,8 @@ int main() {
     float *cuda_out = new float[N];
     generateRandom(h_data, N, 0, 10);
     safesoftmax(cpu_out, h_data, rows, cols);
-    safesoftmax_cuda(cuda_out, h_data, rows, cols);
+    // safesoftmax_cuda(cuda_out, h_data, rows, cols);
+    online_softmax_interface(cuda_out, h_data, rows, cols);
     int i = 0;
     for (int r = 0; r < rows; r++) {
         for (int c = 0; c < cols; c++) {

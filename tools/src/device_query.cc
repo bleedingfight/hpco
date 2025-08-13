@@ -61,7 +61,7 @@ void deviceQuery(int dev) {
     int totalCores = coresPerSM * deviceProp.multiProcessorCount;
     const int width = 110;
 
-    std::cout << centerMesg("Device:" + std::to_string(dev) + deviceProp.name,
+    std::cout << centerMesg("Device: " + std::to_string(dev) + deviceProp.name,
                             width + 10)
               << std::endl;
     std::cout << std::left << std::setw(width)

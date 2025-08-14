@@ -36,5 +36,9 @@ template <typename T>
 void embedding(T *h_out, const T *h_weight, const int *index, const int n,
                const int rows, const int embedding_size);
 
-}
+template <typename T, int BLOCK_SIZE = 512>
+void online_softmax_interface(T *h_out, const T *h_in, const int rows,
+                              const int cols);
+
+} // namespace cuda
 } // namespace hpco

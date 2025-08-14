@@ -1,3 +1,4 @@
+#include "hpco/csrc/op_kernels.h"
 #include <algorithm>
 #include <cmath>
 #include <cooperative_groups.h>
@@ -9,6 +10,7 @@
 #include <limits>
 #include <numeric>
 #include <random>
+namespace hpco::cuda {
 template <typename T>
 void generateRandom(T *h_data, const int N, int minVal, int maxVal,
                     const int seed = 42) {
@@ -220,11 +222,11 @@ __global__ void online_safe_softmax_f32_per_token_kernel(const float *x,
         y[global_tid] = __expf(x[global_tid] - final_res.m) * d_total_inverse;
     }
 }
-template <int BLOCK_SIZE = 256>
-void online_softmax_interface(float *h_out, const float *h_in, const int rows,
+template <typename T, int BLOCK_SIZE>
+void online_softmax_interface(T *h_out, const T *h_in, const int rows,
                               const int cols) {
-    float *d_in, *d_out;
-    const size_t nbytes = rows * cols * sizeof(float);
+    T *d_in, *d_out;
+    const size_t nbytes = rows * cols * sizeof(T);
     cudaMalloc(reinterpret_cast<void **>(&d_in), nbytes);
     cudaMalloc(reinterpret_cast<void **>(&d_out), nbytes);
     cudaMemcpy(d_in, h_in, nbytes, cudaMemcpyHostToDevice);
@@ -236,24 +238,6 @@ void online_softmax_interface(float *h_out, const float *h_in, const int rows,
     cudaFree(d_in);
     cudaFree(d_out);
 }
-
-int main() {
-    const int rows = 1;
-    const int cols = 512;
-    const int N = rows * cols;
-    float *h_data = new float[N];
-    float *cpu_out = new float[N];
-    float *cuda_out = new float[N];
-    generateRandom(h_data, N, 0, 10);
-    safesoftmax(cpu_out, h_data, rows, cols);
-    // safesoftmax_cuda(cuda_out, h_data, rows, cols);
-    online_softmax_interface(cuda_out, h_data, rows, cols);
-    int i = 0;
-    for (int r = 0; r < rows; r++) {
-        for (int c = 0; c < cols; c++) {
-            i++;
-            std::cout << "index = " << i << " cpu = " << cpu_out[r * cols + c]
-                      << " cuda = " << cuda_out[r * cols + c] << "\n";
-        }
-    }
-}
+template void online_softmax_interface<float>(float *h_out, const float *h_in,
+                                              const int rows, const int cols);
+} // namespace hpco::cuda

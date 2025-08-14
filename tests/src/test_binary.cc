@@ -17,8 +17,8 @@ TEST(TestVecAdd, CUDADeviceSuits) {
     std::fill(h_src1, h_src1 + N, 1.f);
     std::fill(h_src2, h_src2 + N, 3.f);
     auto timer = Timer();
-    FUNC_COST_TIME(cuda::vector_add_with_cuda, h_gpu, h_src1, h_src2, N);
-    // vector_add_with_cuda(h_gpu, h_src1, h_src2, N);
+    // FUNC_COST_TIME(cuda::vector_add_with_cuda, h_gpu, h_src1, h_src2, N);
+    cuda::vector_add_with_cuda<float, 512>(h_gpu, h_src1, h_src2, N);
     vector_add_with_cpu(h_dst, h_src1, h_src2, N);
     EXPECT_TRUE(std::equal(h_dst, h_dst + N, h_gpu));
     auto elaps = timer.elapsed_nanoseconds();

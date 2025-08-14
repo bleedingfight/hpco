@@ -222,6 +222,37 @@ __global__ void online_safe_softmax_f32_per_token_kernel(const float *x,
         y[global_tid] = __expf(x[global_tid] - final_res.m) * d_total_inverse;
     }
 }
+template <typename T>
+__device__ __inline__ MD tile_max_and_exp_sum_kernel(
+    const cooperative_groups::thread_block_tile<32> &tile, MD init, T *sdata,
+    size_t N) {
+    T thread_value = sdata[tile.thread_rank()];
+    T tile_max = cooperative_groups::reduce(tile, thread_value,
+                                            cooperative_groups::greater<T>());
+    T den = cooperative_groups::reduce(tile, expf(thread_value - tile_max),
+                                       cooperative_groups::plus<T>());
+    den = static_cast<T>(expf(static_cast<float>(max(init.m, tile_max)))) *
+              init.d +
+          den;
+    return {tile_max, den};
+}
+template <const int BLOCK_SIZE = 512, int WARP_SIZE = 32>
+__global__ void online_softmax_kernel(float *d_out, const float *d_in,
+                                      const int rows, const int cols) {
+    auto grid = cooperative_groups::this_grid();
+    auto tb = cooperative_groups::this_thread_block();
+    auto tile = cooperative_groups::tiled_partition<WARP_SIZE>(tb);
+    MD init;
+    init.m = blockIdx.x < cols ? d_in[tb.thread_index()] : -FLT_MAX;
+    // init.d = global_tid < N ? 1.0f : 0.0f;
+    extern __shared__ float smem[];
+    smem[tb.thread_rank()] =
+        (grid.thread_rank() < rows * cols)
+            ? d_in[grid.block_rank() * cols + tb.thread_rank()]
+            : -FLT_MAX; // 仅处理有效数据
+    tb.sync();
+    MD value = tile_max_and_exp_sum_kernel(tile, init, smem, cols);
+}
 template <typename T, int BLOCK_SIZE>
 void online_softmax_interface(T *h_out, const T *h_in, const int rows,
                               const int cols) {

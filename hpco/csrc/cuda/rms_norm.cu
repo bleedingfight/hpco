@@ -1,12 +1,42 @@
 #include "hpco/csrc/cuda/cuda_kernels.cuh"
-#include "hpco/csrc/cuda/math.cuh"
-#include "hpco/csrc/cuda/utils.cuh"
-#include "hpco/csrc/cuda/vec_dtypes.cuh"
 #include "hpco/csrc/op_kernels.h"
 #include <cstdio>
 #include <iostream>
 #include <type_traits>
 using namespace flashinfer;
+
+template <class T>
+float measure_performance(std::function<T(cudaStream_t)> bound_function,
+                          cudaStream_t stream, size_t num_repeats = 10,
+                          size_t num_warmups = 10) {
+    cudaEvent_t start, stop;
+    float time;
+
+    CUDA_CHECK(cudaEventCreate(&start));
+    CUDA_CHECK(cudaEventCreate(&stop));
+
+    for (size_t i{0}; i < num_warmups; ++i) {
+        bound_function(stream);
+    }
+
+    CUDA_CHECK(cudaStreamSynchronize(stream));
+
+    CUDA_CHECK(cudaEventRecord(start, stream));
+    for (size_t i{0}; i < num_repeats; ++i) {
+        bound_function(stream);
+    }
+    CUDA_CHECK(cudaEventRecord(stop, stream));
+    CUDA_CHECK(cudaEventSynchronize(stop));
+    // CHECK_LAST_CUDA_ERROR();
+    CUDA_CHECK(cudaEventElapsedTime(&time, start, stop));
+    CUDA_CHECK(cudaEventDestroy(start));
+    CUDA_CHECK(cudaEventDestroy(stop));
+
+    float const latency{time / num_repeats};
+
+    return latency;
+}
+
 namespace hpco::cuda {
 namespace fashinfer_ops {
 template <typename T1, typename T2>
@@ -15,10 +45,59 @@ __forceinline__ __device__ __host__ T1 ceil_div(const T1 x, const T2 y) {
 }
 
 template <uint32_t VEC_SIZE, typename T>
-__global__ void
-RMSNormKernel(const T *__restrict__ input, const T *__restrict__ weight,
-              T *__restrict__ output, const uint32_t d,
+__global__ void RMSNormKernel(const T *__restrict__ input, const T *__restrict__ weight,
+                              T *__restrict__ output, const uint32_t d,
+                              const uint32_t stride_input,
+                              const uint32_t stride_output, float weight_bias,
+                              float eps) {
+    const uint32_t bx = blockIdx.x;
+    const uint32_t tx = threadIdx.x, ty = threadIdx.y;
+    constexpr uint32_t warp_size = 32;
+    const uint32_t num_warps = blockDim.y;
+    // NOTE(Zihao): it's guaranteed that num_warps should be smaller than 32
+    const uint32_t thread_id = tx + ty * warp_size;
+    const uint32_t num_threads = num_warps * warp_size;
+    const uint32_t rounds = ceil_div(d, VEC_SIZE * num_threads);
+    extern __shared__ float smem[];
 
+    float sum_sq = 0.f;
+
+#if (__CUDACC_VER_MAJOR__ >= 12 && defined(__CUDA_ARCH__) &&                   \
+     (__CUDA_ARCH__ >= 900))
+    asm volatile("griddepcontrol.wait;");
+#endif
+
+    for (uint32_t i = 0; i < rounds; i++) {
+        vec_t<T, VEC_SIZE> input_vec;
+        input_vec.fill(0.f);
+        if ((i * num_threads + thread_id) * VEC_SIZE < d) {
+            input_vec.load(input + bx * stride_input +
+                           i * num_threads * VEC_SIZE + thread_id * VEC_SIZE);
+        }
+#pragma unroll
+        for (uint32_t j = 0; j < VEC_SIZE; j++) {
+            sum_sq += float(input_vec[j]) * float(input_vec[j]);
+        }
+    }
+
+    // first, warp reduce sum
+#pragma unroll
+    for (uint32_t offset = warp_size / 2; offset > 0; offset /= 2) {
+        sum_sq += math::shfl_xor_sync(sum_sq, offset);
+    }
+
+    smem[ty] = sum_sq;
+    __syncthreads();
+    // then, cross warp reduce sum using only the first warp
+    if (ty == 0) {
+        sum_sq = (tx < num_warps) ? smem[tx] : 0.f;
+#pragma unroll
+        for (uint32_t offset = warp_size / 2; offset > 0; offset /= 2) {
+            sum_sq += math::shfl_xor_sync(sum_sq, offset);
+        }
+        smem[0] = sum_sq;
+    }
+    __syncthreads();
 
     float rms_rcp = math::rsqrt(smem[0] / float(d) + eps);
 
@@ -51,10 +130,10 @@ RMSNormKernel(const T *__restrict__ input, const T *__restrict__ weight,
 }
 
 template <typename T>
-cudaError_t RMSNorm(const T *input, const T *weight, T *output,
-                    uint32_t batch_size, uint32_t d, uint32_t stride_input,
-                    uint32_t stride_output, float eps = 1e-5,
-                    bool enable_pdl = false, cudaStream_t stream = 0) {
+cudaError_t RMSNorm(const T *input, const T *weight, T *output, uint32_t batch_size,
+                    uint32_t d, uint32_t stride_input, uint32_t stride_output,
+                    float eps = 1e-5, bool enable_pdl = false,
+                    cudaStream_t stream = 0) {
     const uint32_t vec_size = std::gcd(16 / sizeof(T), d);
 
     const uint32_t block_size = std::min<uint32_t>(1024, d / vec_size);
@@ -72,14 +151,22 @@ cudaError_t RMSNorm(const T *input, const T *weight, T *output,
     config.dynamicSmemBytes = smem_size;
     config.stream = stream;
     cudaLaunchAttribute attrs[1];
-    attrs[0].id = cudaLaunchAttributeProgrammat
+    attrs[0].id = cudaLaunchAttributeProgrammaticStreamSerialization;
+    attrs[0].val.programmaticStreamSerializationAllowed = enable_pdl;
+    config.numAttrs = 1;
+    config.attrs = attrs;
 
-    for (int idx = threadIdx.x; idx < hidden_size; idx += blockDim.x) {
-        float x = (float)input[blockIdx.x * hidden_size + idx];
-        out[blockIdx.x * hidden_size + idx] =
-            ((scalar_t)(x * s_variance)) * weight[idx];
-    }
+    DISPATCH_ALIGNED_VEC_SIZE(vec_size, VEC_SIZE, {
+        auto kernel = RMSNormKernel<VEC_SIZE, T>;
+        FLASHINFER_CUDA_CALL(cudaFuncSetAttribute(
+            kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, smem_size));
+        FLASHINFER_CUDA_CALL(
+            cudaLaunchKernelEx(&config, kernel, input, weight, output, d,
+                               stride_input, stride_output, weight_bias, eps));
+    });
+    return cudaSuccess;
 }
+} // namespace fashinfer_ops
 
 template <typename scalar_t>
 __global__ void
@@ -110,6 +197,7 @@ rms_norm_kernel_opt(scalar_t *__restrict__ out,          // [..., hidden_size]
             weight_row[idx];
     }
 }
+
 template <typename scalar_t>
 __global__ void
 rms_norm_kernel_smem(scalar_t *__restrict__ out,          // [..., hidden_size]
@@ -117,6 +205,7 @@ rms_norm_kernel_smem(scalar_t *__restrict__ out,          // [..., hidden_size]
                      const scalar_t *__restrict__ weight, // [hidden_size]
                      const float epsilon, const int num_tokens,
                      const int hidden_size) {
+
     auto tb = cooperative_groups::this_thread_block();
     auto grid = cooperative_groups::this_grid();
     auto tile = cooperative_groups::tiled_partition<32>(tb);
@@ -141,35 +230,6 @@ rms_norm_kernel_smem(scalar_t *__restrict__ out,          // [..., hidden_size]
     scalar_t scale;
 
     if (tile.meta_group_rank() == 0) {
-        // 使用一个warp对元素reduce
-        // TODO 这里有问题，似乎只累加了前4个元素
-                      const int hidden_size) {
-    auto tb = cooperative_groups::this_thread_block();
-    auto grid = cooperative_groups::this_grid();
-    auto tile = cooperative_groups::tiled_partition<32>(tb);
-    auto in_row = input + blockIdx.x * hidden_size / 4;
-    auto out_row = out + blockIdx.x * hidden_size / 4;
-    auto weight_row = weight + blockIdx.x * hidden_size / 4;
-    float thread_value = 0.f;
-    extern __shared__ float smem[];
-#pragma unroll
-    for (int idx = tb.thread_rank(); idx < hidden_size / 4;
-         idx += tb.num_threads()) {
-        thread_value +=
-            in_row[idx].x * in_row[idx].x + in_row[idx].y * in_row[idx].y +
-            in_row[idx].z * in_row[idx].z + in_row[idx].w * in_row[idx].w;
-    }
-    float tile_sum = cooperative_groups::reduce(
-        tile, thread_value, cooperative_groups::plus<float>());
-
-    if (tile.thread_rank() == 0) {
-        smem[tile.meta_group_rank()] = tile_sum;
-    }
-    tb.sync();
-    float block_value_sum = 0.f;
-    float scale = 0.f;
-
-    if (tile.meta_group_rank() == 0) {
         int warp_nums = tb.num_threads() / tile.num_threads();
         if (tile.thread_rank() < warp_nums) {
             block_value_sum = smem[tile.thread_rank()];
@@ -184,30 +244,58 @@ rms_norm_kernel_smem(scalar_t *__restrict__ out,          // [..., hidden_size]
     }
     tb.sync();
     scale = smem[0];
+    const float4 *in_row4 = reinterpret_cast<const float4 *>(in_row);
+    const float4 *weight4 = reinterpret_cast<const float4 *>(weight);
+    float4 *out_row4 = reinterpret_cast<float4 *>(out_row);
 #pragma unroll
     for (int idx = tb.thread_rank(); idx < hidden_size / 4;
          idx += tb.num_threads()) {
-        out_row[idx].x = in_row[idx].x * scale * weight[idx].x;
-        out_row[idx].y = in_row[idx].y * scale * weight[idx].y;
-        out_row[idx].z = in_row[idx].z * scale * weight[idx].z;
-        out_row[idx].w = in_row[idx].w * scale * weight[idx].w;
+        out_row4[idx].x = in_row4[idx].x * scale * weight4[idx].x;
+        out_row4[idx].y = in_row4[idx].y * scale * weight4[idx].y;
+        out_row4[idx].z = in_row4[idx].z * scale * weight4[idx].z;
+        out_row4[idx].w = in_row4[idx].w * scale * weight4[idx].w;
     }
 }
-template <typename scalar_t, size_t BLOCK_SIZE, size_t ROUND_NUMS>
+
+template <typename scalar_t, size_t BLOCK_SIZE, size_t ROUND_NUMS = 10>
 void rms_norm_cuda(scalar_t *__restrict__ out,          // [..., hidden_size]
                    const scalar_t *__restrict__ input,  // [..., hidden_size]
                    const scalar_t *__restrict__ weight, // [hi
-        }
-        float elaps = 0.f;
-        CUDA_CHECK(cudaEventRecord(stop));
-        CUDA_CHECK(cudaEventSynchronize(stop));
-        CUDA_CHECK(cudaEventElapsedTime(&elaps, start, stop));
-        CUDA_CHECK(cudaEventDestroy(start));
-        CUDA_CHECK(cudaEventDestroy(stop));
-        float latency = elaps / ROUND_NUMS;
-        std::cout << "FlashInfer Cost time:" << latency << "\n";
-        return;
+                   const uint32_t num_tokens, const uint32_t hidden_size,
+                   const float epsilon, OPT_MODE mode) {
+
+    const uint32_t vec_size = std::gcd(16 / sizeof(scalar_t), hidden_size);
+
+    const uint32_t block_size =
+        std::min<uint32_t>(BLOCK_SIZE, hidden_size / vec_size);
+    const uint32_t num_warps = ceil_div(block_size, 32);
+    dim3 nblks(num_tokens);
+    dim3 nthrs(32, num_warps);
+    const uint32_t smem_size = num_warps * sizeof(scalar_t);
+
+    cudaLaunchConfig_t config;
+    config.gridDim = nblks;
+    config.blockDim = nthrs;
+    config.dynamicSmemBytes = smem_size;
+    cudaLaunchAttribute attrs[1];
+    config.numAttrs = 1;
+    config.attrs = attrs;
+    auto fn = rms_norm_kernel_smem<scalar_t>;
+    switch (mode) {
+    case OPT_MODE::VLLM:
+        fn = rms_norm_kernel_opt<scalar_t>;
+        break;
+    case OPT_MODE::OPT:
+        fn = rms_norm_kernel_smem<scalar_t>;
+        break;
+            
+    case OPT_MODE::FLASHINFER:
+            fashinfer_ops::RMSNorm(input, weight, out, num_tokens,
+                    hidden_size, hidden_size, hidden_size,
+                    epsilon,false,0);
+        break;
     }
+
     fn<<<config.gridDim, config.blockDim, sizeof(scalar_t) * num_warps>>>(
         out, input, weight, epsilon, num_tokens, hidden_size);
 
@@ -239,154 +327,69 @@ void rms_norm_cuda(scalar_t *__restrict__ out,          // [..., hidden_size]
                   << "(GB)/s"
                   << " data size:" << nbytes << "MiB\n";
     }
-}
+} // namespace fashinfer_ops
 
 template <typename scalar_t, size_t BLOCK_SIZE>
 void rms_norm_interface(scalar_t *out,          // [..., hidden_size]
                         const scalar_t *input,  // [..., hidden_size]
                         const scalar_t *weight, // [hidden_size]
-                        const float epsilon, const int num_tokens,
-                        const int hidden_size, OPT_MODE mode) {
+                        const float epsilon, const uint32_t num_tokens,
+                        const uint32_t hidden_size, OPT_MODE mode) {
     const size_t nbytes = sizeof(scalar_t) * hidden_size * num_tokens;
     scalar_t *d_input, *d_out, *d_weight;
     cudaMalloc(reinterpret_cast<void **>(&d_input), nbytes);
-    cudaMalloc(rei
-    config.attrs = attrs;
-
-    auto fn = rms_norm_kernel_smem4<scalar_t>;
-    fn<<<config.gridDim, config.blockDim, sizeof(float) * num_warps>>>(
-        out, input, weight, epsilon, num_tokens, hidden_size);
-
-    if (ROUND_NUMS > 0) {
-        cudaEvent_t start, stop;
-        CUDA_CHECK(cudaEventCreate(&start));
-        CUDA_CHECK(cudaEventCreate(&stop));
-        CUDA_CHECK(cudaEventRecord(start));
-        for (int i = 0; i < ROUND_NUMS; i++) {
-            fn<<<config.gridDim, config.blockDim,
-                 sizeof(scalar_t) * num_warps / 4>>>(
-                out, input, weight, epsilon, num_tokens, hidden_size);
-        }
-        float elaps = 0.f;
-        CUDA_CHECK(cudaEventRecord(stop));
-        CUDA_CHECK(cudaEventSynchronize(stop));
-        CUDA_CHECK(cudaEventElapsedTime(&elaps, start, stop));
-        CUDA_CHECK(cudaEventDestroy(start));
-        CUDA_CHECK(cudaEventDestroy(stop));
-
-        const size_t size = num_tokens * hidden_size * sizeof(float);
-        size_t numCrossMemoryBound = 2 * size;
-        float latency = elaps / ROUND_NUMS;
-        float bandwidth = (numCrossMemoryBound / latency) / 1e6;
-        std::cout << "Elaps = " << latency << "(ms) Bandwidth = " << bandwidth
-                  << "(GB)/s\n";
-    }
-}
-
-template <typename scalar_t, size_t BLOCK_SIZE>
-void rms_norm_interface4(scalar_t *out,          // [..., hidden_size]
-                         const scalar_t *input,  // [..., hidden_size]
-                         const scalar_t *weight, // [hidden_size]
-                         const float epsilon, const int num_tokens,
-                         const int hidden_size, OPT_MODE mode) {
-    const size_t nbytes = sizeof(float) * hidden_size * num_tokens;
-    float *d_input, *d_out, *d_weight;
-    cudaMalloc(reinterpret_cast<void **>(&d_input), nbytes);
-    cudaMalloc(reinterpret_cast<void **>(&d_weight), nbytes);
+    cudaMalloc(reinterpret_cast<void **>(&d_weight),
+               hidden_size * sizeof(scalar_t));
     cudaMalloc(reinterpret_cast<void **>(&d_out), nbytes);
-    cudaMemcpy(d_input, input, nbytes, cudaMemcpyHostToDevice);
-    cudaMemcpy(d_weight, weight, nbytes, cudaMemcpyHostToDevice);
-    rms_norm_cuda4<float4, BLOCK_SIZE, 10>(
-        reinterpret_cast<float4 *>(d_out), reinterpret_cast<float4 *>(d_input),
-        reinterpret_cast<float4 *>(d_weight), epsilon, num_tokens, hidden_size,
-        mode);
-    cudaMemcpy(out, d_out, nbytes, cudaMemcpyDeviceToHost);
+    CUDA_CHECK(cudaMemcpy(d_input, input, nbytes, cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_weight, weight, sizeof(scalar_t) * hidden_size,
+                          cudaMemcpyHostToDevice));
+
+    rms_norm_cuda<scalar_t, BLOCK_SIZE, 10>(
+        d_out, d_input, d_weight, num_tokens, hidden_size, epsilon, mode);
+    CUDA_CHECK(cudaMemcpy(out, d_out, nbytes, cudaMemcpyDeviceToHost));
+    CUDA_CHECK(cudaFree(d_input));
+    CUDA_CHECK(cudaFree(d_weight));
+    CUDA_CHECK(cudaFree(d_out));
 }
-template void rms_norm_cuda<float, 1024, 10>(float *, const float *,
-                                             const float *, const float,
-                                             const int, c
-//     static_assert(std::is_pod_v<_f16Vec<scalar_t, width>>);
-//     static_assert(sizeof(_f16Vec<scalar_t, width>) == sizeof(scalar_t) *
-//     width);
 
-//     const int vec_hidden_size = hidden_size / width;
-//     __shared__ float s_variance;
-//     float variance = 0.0f;
-//     /* These and the argument pointers are all declared `restrict` as they
-//     are
-//        not aliased in practice. Argument pointers should not be dereferenced
-//        in this kernel as that would be undefined behavior */
-//     auto *__restrict__ input_v =
-//         reinterpret_cast<_f16Vec<scalar_t, width> *>(input);
-//     auto *__restrict__ residual_v =
-//         reinterpret_cast<_f16Vec<scalar_t, width> *>(residual);
-//     auto *__restrict__ weight_v =
-//         reinterpret_cast<const _f16Vec<scalar_t, width> *>(weight);
-
-//     for (int idx = threadIdx.x; idx < vec_hidden_size; idx += blockDim.x) {
-//         int id = blockIdx.x * vec_hidden_size + idx;
-//         _f16Vec<scalar_t, width> temp = input_v[id];
-//         temp += residual_v[id];
-//         variance += temp.sum_squares();
-//         residual_v[id] = temp;
-//     }
-
-//     using BlockReduce = cub::BlockReduce<float, 1024>;
-//     __shared__ typename BlockReduce::TempStorage reduceStore;
-//     variance =
-//         BlockReduce(reduceStore).Reduce(variance, cub::Sum{}, blockDim.x);
-
-//     if (threadIdx.x == 0) {
-//         s_variance = rsqrtf(variance / hidden_size + epsilon);
-//     }
-//     __syncthreads();
-
-//     for (int idx = threadIdx.x; idx < vec_hidden_size; idx += blockDim.x) {
-//         int id = blockIdx.x * vec_hidden_size + idx;
-//         _f16Vec<scalar_t, width> temp = residual_v[id];
-//         temp *= s_variance;
-//         temp *= weight_v[idx];
-//         input_v[id] = temp;
-//     }
+// template <typename scalar_t, size_t BLOCK_SIZE>
+// void rms_norm_interface4(scalar_t *out,          // [..., hidden_size]
+//                          const scalar_t *input,  // [..., hidden_size]
+//                          const scalar_t *weight, // [hidden_size]
+//                          const float epsilon, const int num_tokens,
+//                          const int hidden_size, OPT_MODE mode) {
+//     const size_t nbytes = sizeof(float) * hidden_size * num_tokens;
+//     float *d_input, *d_out, *d_weight;
+//     cudaMalloc(reinterpret_cast<void **>(&d_input), nbytes);
+//     cudaMalloc(reinterpret_cast<void **>(&d_weight), nbytes);
+//     cudaMalloc(reinterpret_cast<void **>(&d_out), nbytes);
+//     cudaMemcpy(d_input, input, nbytes, cudaMemcpyHostToDevice);
+//     cudaMemcpy(d_weight, weight, nbytes, cudaMemcpyHostToDevice);
+//     rms_norm_cuda4<float4, BLOCK_SIZE, 10>(
+//         reinterpret_cast<float4 *>(d_out), reinterpret_cast<float4
+//         *>(d_input), reinterpret_cast<float4 *>(d_weight), epsilon,
+//         num_tokens, hidden_size, mode);
+//     cudaMemcpy(out, d_out, nbytes, cudaMemcpyDeviceToHost);
 // }
 
-// /* Generic fused_add_rms_norm_kernel
-//    The width field is not used here but necessary for other specializations.
-//  */
-// template <typename scalar_t, int width>
-// __global__ std::enable_if_t<(width == 0) || !_typeConvert<scalar_t>::exists>
-// fused_add_rms_norm_kernel(scalar_t *__restrict__ input,    // [...,
-// hidden_size]
-//                           scalar_t *__restrict__ residual, // [...,
-//                           hidden_size] const scalar_t *__restrict__ weight,
-//                           // [hidden_size] const float epsilon, const int
-//                           num_tokens, const int hidden_size) {
-//     __shared__ float s_variance;
-//     float variance = 0.0f;
+template void rms_norm_cuda<float, 1024, 10>(
+    float *__restrict__ out,          // [..., hidden_size]
+    const float *__restrict__ input,  // [..., hidden_size]
+    const float *__restrict__ weight, // [hidden_size]
+    const uint32_t num_tokens, const uint32_t hidden_size, const float epsilon,
+    OPT_MODE mode);
+// template void
+// rms_norm_interface<float, 1024>(float *out,          // [..., hidden_size]
+//                                 const float *input,  // [..., hidden_size]
+//                                 const float *weight, // [hidden_size]
+//                                 const float epsilon, const int num_tokens,
+//                                 const int hidden_size, OPT_MODE mode);
 
-//     for (int idx = threadIdx.x; idx < hidden_size; idx += blockDim.x) {
-//         scalar_t z = input[blockIdx.x * hidden_size + idx];
-//         z += residual[blockIdx.x * hidden_size + idx];
-//         float x = (float)z;
-//         variance += x * x;
-//         residual[blockIdx.x * hidden_size + idx] = z;
-//     }
-
-//     using BlockReduce = cub::BlockReduce<float, 1024>;
-//     __shared__ typename BlockReduce::TempStorage reduceStore;
-//     variance =
-//         BlockReduce(reduceStore).Reduce(variance, cub::Sum{}, blockDim.x);
-
-//     if (threadIdx.x == 0) {
-//         s_variance = rsqrtf(variance / hidden_size + epsilon);
-//     }
-//     __syncthreads();
-
-//     for (int idx = threadIdx.x; idx < hidden_size; idx += blockDim.x) {
-//         float x = (float)residual[blockIdx.x * hidden_size + idx];
-//         input[blockIdx.x * hidden_size + idx] =
-//             ((scalar_t)(x * s_variance)) * weight[idx];
-//     }
-// }
-
+template void
+rms_norm_interface<float, 512>(float *out,          // [..., hidden_size]
+                               const float *input,  // [..., hidden_size]
+                               const float *weight, // [hidden_size]
+                               const float epsilon, const uint32_t num_tokens,
+                               const uint32_t hidden_size, OPT_MODE mode);
 } // namespace hpco::cuda

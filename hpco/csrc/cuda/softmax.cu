@@ -236,26 +236,26 @@ __device__ __inline__ MD tile_max_and_exp_sum_kernel(
           den;
     return {tile_max, den};
 }
-template <const int BLOCK_SIZE = 512, int WARP_SIZE = 32>
-__global__ void online_softmax_kernel(float *d_out, const float *d_in,
-                                      const int rows, const int cols) {
-    auto grid = cooperative_groups::this_grid();
-    auto tb = cooperative_groups::this_thread_block();
-    auto tile = cooperative_groups::tiled_partition<WARP_SIZE>(tb);
-    MD init;
-    init.m = blockIdx.x < cols ? d_in[tb.thread_index()] : -FLT_MAX;
-    // init.d = global_tid < N ? 1.0f : 0.0f;
-    extern __shared__ float smem[];
-    smem[tb.thread_rank()] =
-        (grid.thread_rank() < rows * cols)
-            ? d_in[grid.block_rank() * cols + tb.thread_rank()]
-            : -FLT_MAX; // 仅处理有效数据
-    tb.sync();
-    MD value = tile_max_and_exp_sum_kernel(tile, init, smem, cols);
-}
+// template <const int BLOCK_SIZE = 512, int WARP_SIZE = 32>
+// __global__ void online_softmax_kernel(float *d_out, const float *d_in,
+//                                       const int rows, const int cols) {
+//     auto grid = cooperative_groups::this_grid();
+//     auto tb = cooperative_groups::this_thread_block();
+//     auto tile = cooperative_groups::tiled_partition<WARP_SIZE>(tb);
+//     MD init;
+//     init.m = blockIdx.x < cols ? d_in[tb.thread_index()] : -FLT_MAX;
+//     // init.d = global_tid < N ? 1.0f : 0.0f;
+//     extern __shared__ float smem[];
+//     smem[tb.thread_rank()] =
+//         (grid.thread_rank() < rows * cols)
+//             ? d_in[grid.block_rank() * cols + tb.thread_rank()]
+//             : -FLT_MAX; // 仅处理有效数据
+//     tb.sync();
+//     MD value = tile_max_and_exp_sum_kernel(tile, init, smem, cols);
+// }
 template <typename T, int BLOCK_SIZE>
-void online_softmax_interface(T *h_out, const T *h_in, const int rows,
-                              const int cols) {
+void online_softmax_interface(T *h_out, const T *h_in, const uint32_t rows,
+                              const uint32_t cols) {
     T *d_in, *d_out;
     const size_t nbytes = rows * cols * sizeof(T);
     cudaMalloc(reinterpret_cast<void **>(&d_in), nbytes);
@@ -270,5 +270,5 @@ void online_softmax_interface(T *h_out, const T *h_in, const int rows,
     cudaFree(d_out);
 }
 template void online_softmax_interface<float>(float *h_out, const float *h_in,
-                                              const int rows, const int cols);
+                                              const uint32_t rows, const uint32_t cols);
 } // namespace hpco::cuda

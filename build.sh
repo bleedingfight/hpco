@@ -15,7 +15,7 @@ build_type=$1
 project_name
 
 pushd ${build} >/dev/null
-export CUTLASS_ROOT_DIR=${workspace}/cutlass
+# export CUTLASS_ROOT_DIR=${workspace}/cutlass
 cmake .. -DCMAKE_BUILD_TYPE=DEBUG
 find . -name ${executable} -exec rm -rf {} \;
 # make clean

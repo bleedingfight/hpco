@@ -25,7 +25,7 @@ if(USE_CUTLASS)
     set(CUTLASS_ROOT_DIR $ENV{CUTLASS_HOME} CACHE STRING "设置全局CUTLASS")
   else()
     # Define a default path if CUTLASS_HOME is not set
-    set(DEFAULT_CUTLASS_PATH "/usr/local/cutlass/") # Change this to your desired default path
+    set(DEFAULT_CUTLASS_PATH "/usr/local/cutlass/include") # Change this to your desired default path
     message(STATUS "CUTLASS_HOME not set, using default path: ${DEFAULT_CUTLASS_PATH}")
     # set(CUTLASS_ROOT_DIR ${DEFAULT_CUTLASS_PATH})
     set(CUTLASS_ROOT_DIR ${DEFAULT_CUTLASS_PATH} CACHE STRING "设置全局CUTLASS")

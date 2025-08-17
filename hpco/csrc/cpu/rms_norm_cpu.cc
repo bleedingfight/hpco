@@ -6,7 +6,7 @@
 namespace hpco::cpu {
 template <typename T>
 void rms_norm(T *out, const T *input, const T *weight, const float eps,
-              int batch_size, int d) {
+              uint32_t batch_size, uint32_t d) {
     for (size_t i = 0; i < batch_size; i++) {
         T sum = std::inner_product(input + i * d, input + (i + 1) * d,
                                    input + i * d, 0.0);
@@ -15,6 +15,6 @@ void rms_norm(T *out, const T *input, const T *weight, const float eps,
                        [&rms_rcp](T a, T b) { return rms_rcp * a * b; });
     }
 }
-template void rms_norm<float>(float *, const float *, const float *, float, int,
-                              int);
+template void rms_norm<float>(float *, const float *, const float *, float, uint32_t,
+                              uint32_t);
 } // namespace hpco::cpu

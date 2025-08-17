@@ -2,15 +2,26 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <functional>
 
 #include <limits>
 #include <numeric>
+enum OPT_MODE {
+    VLLM,
+    FLASHINFER,
+    OPT,
+    FAKE,
+};
 namespace hpco {
 namespace cpu {
 template <typename T>
 void embedding_cpu(T *h_out, const T *h_weight, const int *index, const int n,
                    const int rows, const int embedding_size);
+template <typename T>
+void rms_norm(T *out, const T *input, const T *weight, const float eps,
+              uint32_t batch_size, uint32_t d);
+
 template <typename T>
 void safesoftmax(T *h_out, const T *h_in, const size_t rows, const size_t cols);
 template <typename T>
@@ -36,9 +47,16 @@ template <typename T>
 void embedding(T *h_out, const T *h_weight, const int *index, const int n,
                const int rows, const int embedding_size);
 
+template <typename scalar_t, size_t BLOCK_SIZE>
+void rms_norm_interface(scalar_t *out,          // [..., hidden_size]
+                        const scalar_t *input,  // [..., hidden_size]
+                        const scalar_t *weight, // [hidden_size]
+                        const float epsilon, const uint32_t num_tokens,
+                        const uint32_t hidden_size, OPT_MODE mode);
+
 template <typename T, int BLOCK_SIZE = 512>
-void online_softmax_interface(T *h_out, const T *h_in, const int rows,
-                              const int cols);
+void online_softmax_interface(T *h_out, const T *h_in, const uint32_t rows,
+                              const uint32_t cols);
 
 } // namespace cuda
 } // namespace hpco

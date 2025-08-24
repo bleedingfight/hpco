@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cooperative_groups.h>
+#include <cooperative_groups/memcpy_async.h>
 #include <cooperative_groups/reduce.h>
 #include <cstdio>
 #include <cuda_runtime.h>
@@ -222,6 +223,21 @@ __global__ void online_safe_softmax_f32_per_token_kernel(const float *x,
         y[global_tid] = __expf(x[global_tid] - final_res.m) * d_total_inverse;
     }
 }
+// template <typename T>
+// __device__ __inline__ MD tile_max_and_exp_sum_kernel(
+//     const cooperative_groups::thread_block_tile<32> &tile, MD init, T *sdata,
+//     size_t N) {
+//     T thread_value = sdata[tile.thread_rank()];
+//     T tile_max = cooperative_groups::reduce(tile, thread_value,
+//                                             cooperative_groups::greater<T>());
+//     T den = cooperative_groups::reduce(tile, expf(thread_value - tile_max),
+//                                        cooperative_groups::plus<T>());
+//     den = static_cast<T>(expf(static_cast<float>(max(init.m, tile_max)))) *
+//               init.d +
+//           den;
+//     return {tile_max, den};
+// }
+
 template <typename T>
 __device__ __inline__ MD tile_max_and_exp_sum_kernel(
     const cooperative_groups::thread_block_tile<32> &tile, MD init, T *sdata,
@@ -231,44 +247,76 @@ __device__ __inline__ MD tile_max_and_exp_sum_kernel(
                                             cooperative_groups::greater<T>());
     T den = cooperative_groups::reduce(tile, expf(thread_value - tile_max),
                                        cooperative_groups::plus<T>());
-    den = static_cast<T>(expf(static_cast<float>(max(init.m, tile_max)))) *
-              init.d +
-          den;
     return {tile_max, den};
 }
-// template <const int BLOCK_SIZE = 512, int WARP_SIZE = 32>
-// __global__ void online_softmax_kernel(float *d_out, const float *d_in,
-//                                       const int rows, const int cols) {
-//     auto grid = cooperative_groups::this_grid();
-//     auto tb = cooperative_groups::this_thread_block();
-//     auto tile = cooperative_groups::tiled_partition<WARP_SIZE>(tb);
-//     MD init;
-//     init.m = blockIdx.x < cols ? d_in[tb.thread_index()] : -FLT_MAX;
-//     // init.d = global_tid < N ? 1.0f : 0.0f;
-//     extern __shared__ float smem[];
-//     smem[tb.thread_rank()] =
-//         (grid.thread_rank() < rows * cols)
-//             ? d_in[grid.block_rank() * cols + tb.thread_rank()]
-//             : -FLT_MAX; // 仅处理有效数据
-//     tb.sync();
-//     MD value = tile_max_and_exp_sum_kernel(tile, init, smem, cols);
-// }
+
+template <const int BLOCK_SIZE = 512, int WARP_SIZE = 32>
+__global__ void online_softmax_kernel(float *d_out, const float *d_in,
+                                      const int batch_size, const int nums) {
+    auto grid = cooperative_groups::this_grid();
+    auto tb = cooperative_groups::this_thread_block();
+    auto tile = cooperative_groups::tiled_partition<WARP_SIZE>(tb);
+    constexpr int num_warps = (BLOCK_SIZE + WARP_SIZE - 1) / WARP_SIZE;
+    MD init;
+    extern __shared__ float smem[];
+
+    int repeat_nums = (nums + BLOCK_SIZE - 1) / BLOCK_SIZE;
+    for (int i = 0; i < repeat_nums; i++) {
+        cooperative_groups::memcpy_async(
+            tb, smem, d_in + grid.block_index().x * nums + i * BLOCK_SIZE,
+            BLOCK_SIZE * sizeof(float));
+        tb.sync();
+        // warp级运算
+        MD value = tile_max_and_exp_sum_kernel(
+            tile, init, smem + tb.thread_index().y * 32, nums);
+        if (grid.block_index().x == 0 && tb.thread_rank() % 32 == 0 and
+            i == 0) {
+            printf("value.m = %f value.d = %f threadIdx.x = %d threadIdx.y = "
+                   "%d\n",
+                   value.m, value.d, tb.thread_index().x, tb.thread_index().y);
+        }
+        smem[tile.meta_group_rank()] = value.m;
+        smem[tile.meta_group_rank() + num_warps] = value.d;
+        tb.sync();
+        // 汇聚warp结果
+        if (tile.meta_group_rank() == 0) {
+            float m = -FLT_MAX;
+            float d = 0.0f;
+            m = max(m, smem[tile.thread_rank()]);
+            d = d + smem[tile.thread_rank() + num_warps] *
+                        expf(smem[tile.thread_rank()] - m);
+            smem[0] = m;
+            smem[1] = d;
+        }
+        tb.sync();
+    }
+
+    (d_out + grid.thread_index().x)[tb.thread_rank()] =
+        expf((d_in + grid.thread_index().x)[tb.thread_rank()] - smem[0]) /
+        smem[1];
+}
+
 template <typename T, int BLOCK_SIZE>
-void online_softmax_interface(T *h_out, const T *h_in, const uint32_t rows,
-                              const uint32_t cols) {
+void online_softmax_interface(T *h_out, const T *h_in,
+                              const uint32_t batch_size, const uint32_t cols) {
     T *d_in, *d_out;
-    const size_t nbytes = rows * cols * sizeof(T);
+    const size_t nbytes = batch_size * cols * sizeof(T);
     cudaMalloc(reinterpret_cast<void **>(&d_in), nbytes);
     cudaMalloc(reinterpret_cast<void **>(&d_out), nbytes);
     cudaMemcpy(d_in, h_in, nbytes, cudaMemcpyHostToDevice);
-    dim3 block(BLOCK_SIZE);
-    dim3 grid((rows * cols + block.x - 1) / block.x);
-    online_safe_softmax_f32_per_token_kernel<<<grid, block>>>(d_in, d_out,
-                                                              rows * cols);
+    // dim3 block(BLOCK_SIZE);
+    // dim3 grid((rows * cols + block.x - 1) / block.x);
+    // online_safe_softmax_f32_per_token_kernel<<<grid, block>>>(d_in, d_out,
+    //                                                           rows * cols);
+    dim3 block{32, (BLOCK_SIZE + 31) / 32};
+    dim3 grid{batch_size};
+    online_softmax_kernel<<<grid, block, BLOCK_SIZE * sizeof(T)>>>(
+        d_out, d_in, batch_size, cols);
     cudaMemcpy(h_out, d_out, nbytes, cudaMemcpyDeviceToHost);
     cudaFree(d_in);
     cudaFree(d_out);
 }
 template void online_softmax_interface<float>(float *h_out, const float *h_in,
-                                              const uint32_t rows, const uint32_t cols);
+                                              const uint32_t rows,
+                                              const uint32_t cols);
 } // namespace hpco::cuda

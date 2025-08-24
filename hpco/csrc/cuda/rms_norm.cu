@@ -129,131 +129,128 @@ RMSNormKernel(const T *__restrict__ input, const T *__restrict__ weight,
 #endif
 }
 
-template <uint32_t VEC_SIZE, typename T>
-__global__ void
-RMSNormKernelFake(const T *__restrict__ input, const T *__restrict__ weight,
-                  T *__restrict__ output, const uint32_t d,
-                  const uint32_t stride_input, const uint32_t stride_output,
-                  float weight_bias, float eps) {
-    auto tb = cooperative_groups::this_thread_block();
-    auto grid = cooperative_groups::this_grid();
-    auto tile = cooperative_groups::tiled_partition<32>(tb);
-    const uint32_t bx = blockIdx.x;
-    const uint32_t tx = threadIdx.x, ty = threadIdx.y;
-    constexpr uint32_t warp_size = 32;
-    const uint32_t num_warps = blockDim.y;
-    // NOTE(Zihao): it's guaranteed that num_warps should be smaller than 32
-    const uint32_t thread_id = tx + ty * warp_size;
-    const uint32_t num_threads = num_warps * warp_size;
-    const uint32_t rounds =
-        (d + VEC_SIZE * num_threads - 1) / (VEC_SIZE * num_threads);
-    extern __shared__ float smem[];
+// template <uint32_t VEC_SIZE, typename T>
+// __global__ void
+// RMSNormKernelFake(const T *__restrict__ input, const T *__restrict__ weight,
+//                   T *__restrict__ output, const uint32_t d,
+//                   const uint32_t stride_input, const uint32_t stride_output,
+//                   float weight_bias, float eps) {
+//     auto tb = cooperative_groups::this_thread_block();
+//     auto grid = cooperative_groups::this_grid();
+//     auto tile = cooperative_groups::tiled_partition<32>(tb);
+//     const uint32_t bx = blockIdx.x;
+//     const uint32_t tx = threadIdx.x, ty = threadIdx.y;
+//     constexpr uint32_t warp_size = 32;
+//     const uint32_t num_warps = blockDim.y;
+//     // NOTE(Zihao): it's guaranteed that num_warps should be smaller than 32
+//     const uint32_t thread_id = tx + ty * warp_size;
+//     const uint32_t num_threads = num_warps * warp_size;
+//     const uint32_t rounds =
+//         (d + VEC_SIZE * num_threads - 1) / (VEC_SIZE * num_threads);
+//     extern __shared__ float smem[];
 
-    float sum_sq = 0.f;
+//     float sum_sq = 0.f;
 
-#if (__CUDACC_VER_MAJOR__ >= 12 && defined(__CUDA_ARCH__) &&                   \
-     (__CUDA_ARCH__ >= 900))
-    asm volatile("griddepcontrol.wait;");
-#endif
+// #if (__CUDACC_VER_MAJOR__ >= 12 && defined(__CUDA_ARCH__) &&                   \
+//      (__CUDA_ARCH__ >= 900))
+//     asm volatile("griddepcontrol.wait;");
+// #endif
 
-    for (uint32_t i = 0; i < rounds; i++) {
-        // input float4
-        T *input_vec = input + bx * stride_input / VEC_SIZE + i * num_threads +
-                       grid.thread_rank();
-        // float4 模拟向量
-        sum_sq += float(input_vec.x) * float(input_vec.x) +
-                  float(input_vec.y) * float(input_vec.y) +
-                  float(input_vec.z) * float(input_vec.z) +
-                  float(input_vec.w) * float(input_vec.w);
-    }
+//     for (uint32_t i = 0; i < rounds; i++) {
+//         // input float4
+//         T *input_vec = input + bx * stride_input / VEC_SIZE + i * num_threads
+//         +
+//                        grid.thread_rank();
+//         // float4 模拟向量
+//         sum_sq += float(input_vec.x) * float(input_vec.x) +
+//                   float(input_vec.y) * float(input_vec.y) +
+//                   float(input_vec.z) * float(input_vec.z) +
+//                   float(input_vec.w) * float(input_vec.w);
+//     }
 
-    // first, warp reduce sum
-    sum_sq += cooperative_groups::reduce(tile, sum_sq,
-                                         cooperative_groups::plus<float>());
+//     // first, warp reduce sum
+//     sum_sq += cooperative_groups::reduce(tile, sum_sq,
+//                                          cooperative_groups::plus<float>());
 
-    smem[ty] = sum_sq;
-    tb.sync();
-    // then, cross warp reduce sum using only the first warp
-    if (ty == 0) {
-        sum_sq = (tx < num_warps) ? smem[tx] : 0.f;
-        sum_sq += cooperative_groups::reduce(tile, sum_sq,
-                                             cooperative_groups::plus<float>());
-        smem[0] = sum_sq;
-    }
-    tb.sync();
+//     smem[ty] = sum_sq;
+//     tb.sync();
+//     // then, cross warp reduce sum using only the first warp
+//     if (ty == 0) {
+//         sum_sq = (tx < num_warps) ? smem[tx] : 0.f;
+//         sum_sq += cooperative_groups::reduce(tile, sum_sq,
+//                                              cooperative_groups::plus<float>());
+//         smem[0] = sum_sq;
+//     }
+//     tb.sync();
 
-    float rms_rcp = rsqrtf(smem[0] / float(d) + eps);
+//     float rms_rcp = rsqrtf(smem[0] / float(d) + eps);
 
-    for (uint32_t i = 0; i < rounds; i++) {
-        T *input_vec = input + bx * stride_input / VEC_SIZE + i * num_threads +
-                       grid.thread_rank();
+//     for (uint32_t i = 0; i < rounds; i++) {
+//         T *input_vec = input + bx * stride_input / VEC_SIZE + i * num_threads
+//         +
+//                        grid.thread_rank();
 
-        T *output_vec = output + bx * stride_input / VEC_SIZE +
-                        i * num_threads + grid.thread_rank();
-        T *weight_vec = weight + i * num_threads + grid.thread_rank();
-        if ((i * num_threads + thread_id) * VEC_SIZE < d) {
-            output_vec[thread_id].x =
-                float(input_vec[thread_id]) * rms_rcp *
-                (weight_bias + float(weight_vec[thread_id]));
-            output_vec[thread_id].y =
-                float(input_vec[thread_id]) * rms_rcp *
-                (weight_bias + float(weight_vec[thread_id]));
-            output_vec[thread_id].z =
-                float(input_vec[thread_id]) * rms_rcp *
-                (weight_bias + float(weight_vec[thread_id]));
-            output_vec[thread_id].w =
-                float(input_vec[thread_id]) * rms_rcp *
-                (weight_bias + float(weight_vec[thread_id]));
-            if ((i * num_threads + thread_id) * VEC_SIZE < d) {
-                output_vec.store(output + bx * stride_output +
-                                 i * num_threads * VEC_SIZE +
-                                 thread_id * VEC_SIZE);
-            }
-        }
-#if (__CUDACC_VER_MAJOR__ >= 12 && defined(__CUDA_ARCH__) &&                   \
-     (__CUDA_ARCH__ >= 900))
-        asm volatile("griddepcontrol.launch_dependents;");
-#endif
-    }
+//         T *output_vec = output + bx * stride_input / VEC_SIZE +
+//                         i * num_threads + grid.thread_rank();
+//         T *weight_vec = weight + i * num_threads + grid.thread_rank();
+//         if ((i * num_threads + thread_id) * VEC_SIZE < d) {
+//             output_vec[thread_id].x =
+//                 float(input_vec[thread_id]) * rms_rcp *
+//                 (weight_bias + float(weight_vec[thread_id]));
+//             output_vec[thread_id].y =
+//                 float(input_vec[thread_id]) * rms_rcp *
+//                 (weight_bias + float(weight_vec[thread_id]));
+//             output_vec[thread_id].z =
+//                 float(input_vec[thread_id]) * rms_rcp *
+//                 (weight_bias + float(weight_vec[thread_id]));
+//             output_vec[thread_id].w =
+//                 float(input_vec[thread_id]) * rms_rcp *
+//                 (weight_bias + float(weight_vec[thread_id]));
+//         }
+//     }
+// #if (__CUDACC_VER_MAJOR__ >= 12 && defined(__CUDA_ARCH__) && \
+//      (__CUDA_ARCH__ >= 900))
+//     asm volatile("griddepcontrol.launch_dependents;");
+// #endif
+// }
 
-    template <typename T>
-    cudaError_t RMSNorm(const T *input, const T *weight, T *output,
-                        uint32_t batch_size, uint32_t d, uint32_t stride_input,
-                        uint32_t stride_output, float eps = 1e-5,
-                        bool enable_pdl = false, cudaStream_t stream = 0) {
-        const uint32_t vec_size = std::gcd(16 / sizeof(T), d);
+template <typename T>
+cudaError_t RMSNorm(const T *input, const T *weight, T *output,
+                    uint32_t batch_size, uint32_t d, uint32_t stride_input,
+                    uint32_t stride_output, float eps = 1e-5,
+                    bool enable_pdl = false, cudaStream_t stream = 0) {
+    const uint32_t vec_size = std::gcd(16 / sizeof(T), d);
 
-        const uint32_t block_size = std::min<uint32_t>(512, d / vec_size);
-        const uint32_t num_warps = ceil_div(block_size, 32);
-        dim3 nblks(batch_size);
-        dim3 nthrs(32, num_warps);
-        const uint32_t smem_size = num_warps * sizeof(float);
-        float weight_bias = 0.f;
-        void *args[] = {&input,        &weight,        &output,      &d,
-                        &stride_input, &stride_output, &weight_bias, &eps};
+    const uint32_t block_size = std::min<uint32_t>(512, d / vec_size);
+    const uint32_t num_warps = ceil_div(block_size, 32);
+    dim3 nblks(batch_size);
+    dim3 nthrs(32, num_warps);
+    const uint32_t smem_size = num_warps * sizeof(float);
+    float weight_bias = 0.f;
+    void *args[] = {&input,        &weight,        &output,      &d,
+                    &stride_input, &stride_output, &weight_bias, &eps};
 
-        cudaLaunchConfig_t config;
-        config.gridDim = nblks;
-        config.blockDim = nthrs;
-        config.dynamicSmemBytes = smem_size;
-        config.stream = stream;
-        cudaLaunchAttribute attrs[1];
-        attrs[0].id = cudaLaunchAttributeProgrammaticStreamSerialization;
-        attrs[0].val.programmaticStreamSerializationAllowed = enable_pdl;
-        config.numAttrs = 1;
-        config.attrs = attrs;
+    cudaLaunchConfig_t config;
+    config.gridDim = nblks;
+    config.blockDim = nthrs;
+    config.dynamicSmemBytes = smem_size;
+    config.stream = stream;
+    cudaLaunchAttribute attrs[1];
+    attrs[0].id = cudaLaunchAttributeProgrammaticStreamSerialization;
+    attrs[0].val.programmaticStreamSerializationAllowed = enable_pdl;
+    config.numAttrs = 1;
+    config.attrs = attrs;
 
-        DISPATCH_ALIGNED_VEC_SIZE(vec_size, VEC_SIZE, {
-            auto kernel = RMSNormKernel<VEC_SIZE, T>;
-            FLASHINFER_CUDA_CALL(cudaFuncSetAttribute(
-                kernel, cudaFuncAttributeMaxDynamicSharedMemorySize,
-                smem_size));
-            FLASHINFER_CUDA_CALL(cudaLaunchKernelEx(
-                &config, kernel, input, weight, output, d, stride_input,
-                stride_output, weight_bias, eps));
-        });
-        return cudaSuccess;
-    }
+    DISPATCH_ALIGNED_VEC_SIZE(vec_size, VEC_SIZE, {
+        auto kernel = RMSNormKernel<VEC_SIZE, T>;
+        FLASHINFER_CUDA_CALL(cudaFuncSetAttribute(
+            kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, smem_size));
+        FLASHINFER_CUDA_CALL(
+            cudaLaunchKernelEx(&config, kernel, input, weight, output, d,
+                               stride_input, stride_output, weight_bias, eps));
+    });
+    return cudaSuccess;
+}
 } // namespace fashinfer_ops
 
 template <typename scalar_t>

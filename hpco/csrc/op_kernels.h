@@ -57,6 +57,12 @@ void rms_norm_interface(scalar_t *out,          // [..., hidden_size]
 template <typename T, int BLOCK_SIZE = 512>
 void online_softmax_interface(T *h_out, const T *h_in, const uint32_t rows,
                               const uint32_t cols);
+template<typename DType,typename IdType>
+void top_k_top_p_sampling_from_probs_interface(DType* probs, IdType* top_k_arr, float* top_p_arr,
+                                               IdType* output, IdType* indices, IdType top_k_val,
+                                               float top_p_val, uint32_t d, uint64_t philox_seed,
+                                               uint64_t philox_offset);
+void uniform(float *h_out,uint64_t batch_size,uint64_t nums,uint64_t philox_seed,uint64_t philox_offset);
 
 } // namespace cuda
 } // namespace hpco

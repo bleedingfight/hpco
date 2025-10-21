@@ -1,4 +1,5 @@
 #pragma once
+#include <cstdint>
 #include <stdio.h>
 // CUDA错误检查宏
 #define CUDA_CHECK(call)                                                       \
@@ -42,4 +43,8 @@ template <typename T, int BLOCK_SIZE>
 void vector_add_with_cuda(T *h_out, T *h_in1, T *h_in2, const int N);
 // BINARY_OP_HEAD(vector_add);
 template <typename T> T reduce_max_with_cuda(T *h_in, const int N);
+
+template <typename T>
+void reduce_sum_with_cuda(T *h_out, const T *h_in, const uint32_t batch_size,
+                          const uint32_t num_tokens);
 } // namespace cuda

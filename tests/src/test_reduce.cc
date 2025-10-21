@@ -1,5 +1,4 @@
 #include "csrc/cpu/reduce_ops_cpu.h"
-#include "csrc/cpu/statistical_algo.h"
 #include "csrc/cuda/common.h"
 #include "timer.h"
 #include "utils.h"
@@ -19,4 +18,22 @@ TEST(TestReduceMax, CUDADeviceSuits) {
         std::cout << "max cpu = " << max_cpu << " cuda max:" << max_cuda
                   << "\n";
     }
+}
+
+TEST(TestReduceSum, CUDADeviceSuits) {
+    const uint32_t batch_size = 10;
+    const uint32_t num_tokens = 1 << 10;
+    const int N = batch_size * num_tokens;
+    int *data = new int[N];
+    int *h_out = new int[batch_size];
+    int *d_out = new int[batch_size];
+    generateRandom(data, N, 1, 100);
+    reduce_sum_with_cpu(h_out, data, batch_size, num_tokens);
+    cuda::reduce_sum_with_cuda(d_out, data, batch_size, num_tokens);
+    for (int i = 0; i < batch_size; i++) {
+        std::cout << "batch value = " << d_out[i] << "\n";
+    }
+    delete[] data;
+    delete[] d_out;
+    delete[] h_out;
 }

@@ -48,10 +48,6 @@ else:
         wrap_triton(elu_kernel)[(n_elements,)](x, out, n_elements)
         return out
 
-    # x = torch.randn(100, device="cuda")
-    # triton_out = elu(x)
-    # truth = torch.nn.ELU()(x)
-
     x = torch.randn(100, device="cuda")
     triton_out = torch.ops.triton_hpco.elu.default(x)
     truth = torch.nn.ELU()(x)

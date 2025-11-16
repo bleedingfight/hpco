@@ -6,3 +6,5 @@ compile_commands.json
 reduce_sum_bench.cu
 report1*
 report1*
+**/__pycache__/
+**.pyc

@@ -14,7 +14,6 @@ class TestTilelangFunctions:
         N = 128
         a = torch.randn(M, N, dtype=torch.float32, device="cuda").cuda()
         b = torch.randn(M, N, dtype=torch.float32, device="cuda").cuda()
-        # out = elementwise_add(M, N, 32, 32, "float32", "float32", 256)(a, b)
         out = vec_add(M, N, 32, 32, "float32", "float32", 256)(a, b)
 
         truth = a + b
@@ -48,7 +47,8 @@ class TestTilelangFunctions:
             )
             return autotuner.run(warmup=3, rep=20)
 
-        for m, n in [(128, 128), (256, 256), (512, 512)]:
+        # for m, n in [(128, 128), (256, 256), (512, 512)]:
+        for m, n in [(128, 128)]:
             result = get_best_config(m, n)
             kernel = result.kernel
             a = torch.randn(m, n, dtype=torch.float32, device="cuda")

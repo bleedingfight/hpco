@@ -3,7 +3,7 @@ import tilelang.language as T
 
 
 @tl.jit(out_idx=[-1])
-def native_gemv(
+def naive_gemv(
     N: int,
     K: int,
     BLOCK_N: int,
@@ -15,10 +15,7 @@ def native_gemv(
     def main(
         A: T.Tensor((K,), dtype),
         B: T.Tensor((N, K), dtype),
-        C: T.Tensor(
-            N,
-        ),
-        dtype,
+        C: T.Tensor((N,), dtype),
     ):
         with T.Kernel(T.ceildiv(K, BLOCK_K)) as bn:
             # threadIdx.x
@@ -38,4 +35,5 @@ def native_gemv(
                         tn, tk
                     ].astype(accum_dtype)
             C[bn * BLOCK_N + tn] = C_reg[0]
-        return main
+
+    return main

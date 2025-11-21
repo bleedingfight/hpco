@@ -1,2 +1,3 @@
 from .vec_add import vec_add
-from .online_softmax import softmax_kernesoftmax_kernell
+from .online_softmax import softmax_kernel
+from .gemv import naive_gemv
